@@ -7,8 +7,10 @@
 
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use wiiu_cemu::install::{self, CemuInstall, GameEntry};
 use wiiu_cemu::Platform;
 
@@ -48,8 +50,32 @@ pub enum DownloadState {
 pub struct Setup {
     cfg: SetupConfig,
     platform: Platform,
+    /// Where Cemu reaches our DSU server; written into the controller profiles.
+    dsu: SocketAddrV4,
     saved: Mutex<Saved>,
     download: Mutex<DownloadState>,
+    /// Last game scan. Scanning walks whole folders (possibly on slow or network drives), so the status page's
+    /// polling reuses it; `scanning` makes concurrent polls wait for one scan instead of starting their own.
+    games: Mutex<Option<GameScan>>,
+    scanning: Mutex<()>,
+}
+
+struct GameScan {
+    dirs: Vec<String>,
+    games: Vec<GameEntry>,
+    at: Instant,
+}
+
+/// How long a game scan is reused when the game folders haven't changed.
+const GAME_SCAN_TTL: Duration = Duration::from_secs(15);
+
+/// The address Cemu (on this PC) should use for a DSU server bound to `bound`.
+pub fn cemu_dsu_endpoint(bound: SocketAddr) -> SocketAddrV4 {
+    let ip = match bound.ip() {
+        std::net::IpAddr::V4(v4) if !v4.is_unspecified() => v4,
+        _ => Ipv4Addr::LOCALHOST,
+    };
+    SocketAddrV4::new(ip, bound.port())
 }
 
 #[derive(Debug, Serialize)]
@@ -105,7 +131,8 @@ fn platform_name(p: Platform) -> &'static str {
 }
 
 impl Setup {
-    pub fn new(cfg: SetupConfig) -> Arc<Self> {
+    /// `dsu` is the address the DSU server is bound to (see [`cemu_dsu_endpoint`]).
+    pub fn new(cfg: SetupConfig, dsu: SocketAddr) -> Arc<Self> {
         let saved = std::fs::read(cfg.data_dir.join("setup.json"))
             .ok()
             .and_then(|d| serde_json::from_slice(&d).ok())
@@ -113,8 +140,11 @@ impl Setup {
         Arc::new(Self {
             cfg,
             platform: Platform::current(),
+            dsu: cemu_dsu_endpoint(dsu),
             saved: Mutex::new(saved),
             download: Mutex::new(DownloadState::Idle),
+            games: Mutex::new(None),
+            scanning: Mutex::new(()),
         })
     }
 
@@ -148,17 +178,15 @@ impl Setup {
             .as_ref()
             .and_then(|i| install::game_paths(i).ok())
             .unwrap_or_default();
-        let mut games: Vec<GameEntry> = game_dirs
-            .iter()
-            .flat_map(|d| install::scan_games(Path::new(d)))
-            .collect();
-        games.dedup_by(|a, b| a.path == b.path);
+        let games = self.games_in(&game_dirs);
         let managed_dir = self.managed_dir();
         SetupStatus {
             platform: platform_name(self.platform),
             can_download: matches!(self.platform, Platform::Windows | Platform::Linux),
             releases_page: RELEASES_PAGE,
-            controllers_assigned: install.as_ref().is_some_and(install::controllers_assigned),
+            controllers_assigned: install
+                .as_ref()
+                .is_some_and(|i| install::controllers_assigned(i, self.dsu)),
             cemu: install.map(|i| CemuStatus {
                 managed: i.dir == managed_dir,
                 version: std::fs::read_to_string(i.dir.join(".wiiu-connect-version")).ok(),
@@ -171,6 +199,35 @@ impl Setup {
             games,
             download: self.download.lock().unwrap_or_else(|e| e.into_inner()).clone(),
         }
+    }
+
+    /// Games in `dirs`, from the last scan when it is recent and covered the same folders.
+    fn games_in(&self, dirs: &[String]) -> Vec<GameEntry> {
+        let cached = |c: &Option<GameScan>| {
+            c.as_ref()
+                .filter(|c| c.dirs == dirs && c.at.elapsed() < GAME_SCAN_TTL)
+                .map(|c| c.games.clone())
+        };
+        if let Some(g) = cached(&self.games.lock().unwrap_or_else(|e| e.into_inner())) {
+            return g;
+        }
+        let _one_scan_at_a_time = self.scanning.lock().unwrap_or_else(|e| e.into_inner());
+        // Another request may have finished a scan while this one waited.
+        if let Some(g) = cached(&self.games.lock().unwrap_or_else(|e| e.into_inner())) {
+            return g;
+        }
+        let mut games: Vec<GameEntry> = dirs.iter().flat_map(|d| install::scan_games(Path::new(d))).collect();
+        games.dedup_by(|a, b| a.path == b.path);
+        *self.games.lock().unwrap_or_else(|e| e.into_inner()) = Some(GameScan {
+            dirs: dirs.to_vec(),
+            games: games.clone(),
+            at: Instant::now(),
+        });
+        games
+    }
+
+    fn forget_games(&self) {
+        *self.games.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
     /// Uses an existing Cemu in `dir` (the folder with `Cemu.exe`, or `Cemu.app` on macOS).
@@ -190,7 +247,7 @@ impl Setup {
 
     pub fn assign_controllers(&self) -> Result<install::AssignReport, SetupError> {
         let install = self.install().ok_or(SetupError::NoCemu)?;
-        Ok(install::assign_controllers(&install)?)
+        Ok(install::assign_controllers(&install, self.dsu)?)
     }
 
     pub fn add_game_folder(&self, dir: &Path) -> Result<usize, SetupError> {
@@ -199,6 +256,7 @@ impl Setup {
         }
         let install = self.install().ok_or(SetupError::NoCemu)?;
         install::add_game_path(&install, dir)?;
+        self.forget_games();
         Ok(install::scan_games(dir).len())
     }
 
@@ -343,9 +401,9 @@ impl Setup {
             saved.cemu_dir = Some(target.clone());
         }
         self.save()?;
-        // A fresh managed install has no controller setup yet: point Controllers 2–4 at the phones.
+        // A fresh managed install has no controller setup yet: point Controllers 1–4 at the phones.
         let install = CemuInstall::find(&target, self.platform, &Self::env).ok_or(SetupError::NotCemu(target))?;
-        install::assign_controllers(&install)?;
+        install::assign_controllers(&install, self.dsu)?;
         Ok(asset.tag)
     }
 
@@ -481,9 +539,13 @@ pub fn pick_asset(platform: Platform, assets: &[Asset]) -> Option<&Asset> {
     })
 }
 
-/// Extracts the Windows zip into `target` (keeping an existing install's `portable` data), making it portable.
+/// Extracts the Windows zip into `target`, making it portable and keeping an existing install's `portable` folder
+/// (settings, saves, updates). The user's `portable` folder never exists only in a temporary folder: the old install
+/// is renamed aside as a whole, and every failure puts it back.
 fn install_zip(zip_path: &Path, target: &Path, data_dir: &Path) -> Result<(), SetupError> {
     let staging = data_dir.join("Cemu.new");
+    let previous = data_dir.join("Cemu.old");
+    recover_interrupted_update(target, &previous)?;
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(&staging)?;
     let mut archive =
@@ -509,18 +571,61 @@ fn install_zip(zip_path: &Path, target: &Path, data_dir: &Path) -> Result<(), Se
     // The zip contains one top folder (e.g. `Cemu_2.6/`) with Cemu.exe inside.
     let root =
         find_dir_with(&staging, "Cemu.exe", 2).ok_or_else(|| SetupError::Other("Cemu.exe not in the zip".into()))?;
-    let old_portable = target.join("portable");
-    if old_portable.is_dir() {
-        let new_portable = root.join("portable");
-        let _ = std::fs::remove_dir_all(&new_portable);
-        std::fs::rename(&old_portable, &new_portable)?;
-    }
-    if target.exists() {
-        std::fs::remove_dir_all(target)?;
-    }
-    std::fs::rename(&root, target)?;
+    // A `portable` folder from the zip itself would shadow the user's.
+    let _ = std::fs::remove_dir_all(root.join("portable"));
+    swap_in(&root, target, &previous)?;
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(target.join("portable"))?;
+    Ok(())
+}
+
+/// Replaces `target` with `new` and moves the old `portable` folder across. Fails without changing anything when
+/// the old install can't be moved (on Windows: Cemu is still running).
+fn swap_in(new: &Path, target: &Path, previous: &Path) -> Result<(), SetupError> {
+    let busy = |e: std::io::Error| {
+        SetupError::Other(format!(
+            "could not replace the old Cemu in {} ({e}). Close Cemu and try again.",
+            target.display()
+        ))
+    };
+    if target.exists() {
+        std::fs::rename(target, previous).map_err(busy)?;
+    }
+    if let Err(e) = std::fs::rename(new, target) {
+        let _ = std::fs::rename(previous, target);
+        return Err(e.into());
+    }
+    let old_portable = previous.join("portable");
+    if old_portable.is_dir() {
+        if let Err(e) = std::fs::rename(&old_portable, target.join("portable")) {
+            // Undo: the new files go back to `new`, the old install (with its data) back to `target`.
+            if std::fs::rename(target, new).is_ok() {
+                let _ = std::fs::rename(previous, target);
+            }
+            return Err(e.into());
+        }
+    }
+    let _ = std::fs::remove_dir_all(previous);
+    Ok(())
+}
+
+/// Finishes or undoes an update that was cut off (power loss, crash) between the steps of [`swap_in`].
+fn recover_interrupted_update(target: &Path, previous: &Path) -> std::io::Result<()> {
+    if !previous.exists() {
+        return Ok(());
+    }
+    let old_portable = previous.join("portable");
+    if !target.exists() {
+        // Cut off before the new version was moved in: restore the old install.
+        return std::fs::rename(previous, target);
+    }
+    if old_portable.is_dir() && !target.join("portable").exists() {
+        // Cut off after the new version was moved in: bring the user's data over.
+        std::fs::rename(&old_portable, target.join("portable"))?;
+    }
+    if !old_portable.exists() {
+        let _ = std::fs::remove_dir_all(previous);
+    }
     Ok(())
 }
 
@@ -706,6 +811,86 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_swap_leaves_the_old_install_and_its_data_in_place() {
+        let d = temp("swapfail");
+        let target = d.join("Cemu");
+        std::fs::create_dir_all(target.join("portable")).unwrap();
+        std::fs::write(target.join("Cemu.exe"), b"v1").unwrap();
+        std::fs::write(target.join("portable/settings.xml"), "<mine/>").unwrap();
+        // The new version is missing, so moving it in fails after the old install was renamed aside.
+        assert!(swap_in(&d.join("missing"), &target, &d.join("Cemu.old")).is_err());
+        assert_eq!(std::fs::read(target.join("Cemu.exe")).unwrap(), b"v1");
+        assert_eq!(
+            std::fs::read_to_string(target.join("portable/settings.xml")).unwrap(),
+            "<mine/>"
+        );
+        assert!(!d.join("Cemu.old").exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn an_update_cut_off_midway_is_recovered_on_the_next_install() {
+        // Cut off after the old install was renamed aside: it comes back.
+        let d = temp("recover1");
+        let target = d.join("Cemu");
+        let previous = d.join("Cemu.old");
+        std::fs::create_dir_all(previous.join("portable")).unwrap();
+        std::fs::write(previous.join("portable/settings.xml"), "<mine/>").unwrap();
+        recover_interrupted_update(&target, &previous).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(target.join("portable/settings.xml")).unwrap(),
+            "<mine/>"
+        );
+        assert!(!previous.exists());
+        let _ = std::fs::remove_dir_all(&d);
+
+        // Cut off after the new version was moved in: the user's data moves over to it.
+        let d = temp("recover2");
+        let target = d.join("Cemu");
+        let previous = d.join("Cemu.old");
+        std::fs::create_dir_all(previous.join("portable")).unwrap();
+        std::fs::write(previous.join("portable/settings.xml"), "<mine/>").unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("Cemu.exe"), b"v2").unwrap();
+        let z = d.join("cemu.zip");
+        make_zip(&z, &[("Cemu_2.7/Cemu.exe", b"v3")]);
+        install_zip(&z, &target, &d).unwrap();
+        assert_eq!(std::fs::read(target.join("Cemu.exe")).unwrap(), b"v3");
+        assert_eq!(
+            std::fs::read_to_string(target.join("portable/settings.xml")).unwrap(),
+            "<mine/>"
+        );
+        assert!(!previous.exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn profiles_point_at_the_bound_dsu_address() {
+        let e = |s: &str| cemu_dsu_endpoint(s.parse().unwrap()).to_string();
+        assert_eq!(e("127.0.0.1:26760"), "127.0.0.1:26760");
+        assert_eq!(e("127.0.0.1:12345"), "127.0.0.1:12345");
+        assert_eq!(e("0.0.0.0:26760"), "127.0.0.1:26760");
+        assert_eq!(e("192.168.1.5:26760"), "192.168.1.5:26760");
+        assert_eq!(e("[::1]:26760"), "127.0.0.1:26760");
+    }
+
+    #[test]
+    fn game_scans_are_reused_until_the_folders_change() {
+        let d = temp("scan");
+        let games = d.join("games");
+        std::fs::create_dir_all(&games).unwrap();
+        std::fs::write(games.join("One.wua"), b"").unwrap();
+        let setup = Setup::new(SetupConfig { data_dir: d.clone() }, "127.0.0.1:26760".parse().unwrap());
+        let dirs = vec![games.to_string_lossy().into_owned()];
+        assert_eq!(setup.games_in(&dirs).len(), 1);
+        std::fs::write(games.join("Two.wua"), b"").unwrap();
+        assert_eq!(setup.games_in(&dirs).len(), 1, "cached");
+        setup.forget_games();
+        assert_eq!(setup.games_in(&dirs).len(), 2, "rescanned after a change");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn rejects_zip_slip() {
         let d = temp("slip");
         let z = d.join("evil.zip");
@@ -718,7 +903,7 @@ mod tests {
     #[test]
     fn launch_refuses_paths_that_are_not_scanned_games() {
         let d = temp("launch");
-        let setup = Setup::new(SetupConfig { data_dir: d.clone() });
+        let setup = Setup::new(SetupConfig { data_dir: d.clone() }, "127.0.0.1:26760".parse().unwrap());
         assert!(matches!(setup.launch(None, false), Err(SetupError::NoCemu)));
         let _ = std::fs::remove_dir_all(&d);
     }

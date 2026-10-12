@@ -138,7 +138,7 @@ pub async fn start(
     let app = http::router(http::AppState {
         sessions: sessions.clone(),
         config: Arc::new(http_config),
-        setup: config.setup.clone().map(setup::Setup::new),
+        setup: config.setup.clone().map(|cfg| setup::Setup::new(cfg, dsu_addr)),
     });
     let https_app = app.clone();
 

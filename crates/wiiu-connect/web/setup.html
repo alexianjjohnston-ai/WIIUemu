@@ -179,11 +179,22 @@ function render({ setup: s, phones }) {
   $('btn-open-cemu').disabled = !c || busy;
 }
 
-async function refresh() {
-  try {
-    const res = await fetch('/api/setup/status', { cache: 'no-store' });
-    if (res.ok) render(await res.json());
-  } catch { /* server restarting */ }
+// One status request at a time: a slow answer (e.g. scanning a network drive) delays the next poll instead of
+// piling up requests.
+let refreshing = null;
+function refresh() {
+  refreshing ??= (async () => {
+    try {
+      const res = await fetch('/api/setup/status', { cache: 'no-store' });
+      if (res.ok) render(await res.json());
+    } catch { /* server restarting */ }
+    refreshing = null;
+  })();
+  return refreshing;
+}
+async function poll() {
+  await refresh();
+  setTimeout(poll, 1000);
 }
 
 $('btn-download').onclick = () => post('/api/setup/cemu/download', {}, $('cemu-error'));
@@ -197,7 +208,7 @@ $('btn-games').onclick = async () => {
   if (r) { $('games-path').value = ''; if (r.found === 0) $('games-error').textContent = 'Folder added, but no games were found in it yet.'; }
 };
 $('btn-open-cemu').onclick = () => post('/api/setup/launch', { fullscreen: false }, $('play-error'));
-refresh(); setInterval(refresh, 1000);
+poll();
 </script>
 </body>
 </html>

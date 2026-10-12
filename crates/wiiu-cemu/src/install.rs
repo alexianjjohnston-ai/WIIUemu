@@ -13,6 +13,7 @@
 use crate::{profile_dir_candidates_for, CemuProfile, GamepadProfile, Platform, WiimoteProfile};
 use std::fs;
 use std::io;
+use std::net::SocketAddrV4;
 use std::path::{Path, PathBuf};
 
 /// A Cemu installation: its executable and the folder holding `settings.xml` and `controllerProfiles/`.
@@ -93,12 +94,21 @@ pub struct AssignReport {
     pub backups: Vec<PathBuf>,
 }
 
-/// The profile Wii U Connect puts on each of Cemu's controllers: index 0 is Controller 1 (the GamePad, DSU slot
-/// 0), indices 1–3 are Controllers 2–4 (Wii Remotes for players 1–3, DSU slots 1–3).
-fn controller_profiles() -> [(String, String); 4] {
-    let gamepad = GamepadProfile::default();
+/// The profile Wii U Connect puts on each of Cemu's controllers, all pointing at the DSU server on `dsu`: index 0
+/// is Controller 1 (the GamePad, DSU slot 0), indices 1–3 are Controllers 2–4 (Wii Remotes for players 1–3, DSU
+/// slots 1–3).
+fn controller_profiles(dsu: SocketAddrV4) -> [(String, String); 4] {
+    let gamepad = GamepadProfile {
+        dsu_ip: *dsu.ip(),
+        dsu_port: dsu.port(),
+        ..GamepadProfile::default()
+    };
     let wiimote = |player: u8| {
-        let p = WiimoteProfile::for_player(player);
+        let p = WiimoteProfile {
+            dsu_ip: *dsu.ip(),
+            dsu_port: dsu.port(),
+            ..WiimoteProfile::for_player(player)
+        };
         (p.name().to_owned(), p.to_xml())
     };
     [
@@ -112,11 +122,11 @@ fn controller_profiles() -> [(String, String); 4] {
 /// Writes the `WiiUConnect_GamePad` and `WiiUConnect_Wiimote{1,2,3}` profiles and makes them the active configs of
 /// Cemu's Controllers 1–4 (`controller0.xml` … `controller3.xml`). Any different existing active config is first
 /// copied to `controllerN.xml.before-wiiu-connect` (once; later runs keep the oldest backup).
-pub fn assign_controllers(install: &CemuInstall) -> io::Result<AssignReport> {
+pub fn assign_controllers(install: &CemuInstall, dsu: SocketAddrV4) -> io::Result<AssignReport> {
     let dir = install.profiles_dir();
     fs::create_dir_all(&dir)?;
     let mut report = AssignReport::default();
-    for (index, (name, xml)) in controller_profiles().into_iter().enumerate() {
+    for (index, (name, xml)) in controller_profiles(dsu).into_iter().enumerate() {
         let named = dir.join(format!("{name}.xml"));
         fs::write(&named, &xml)?;
         report.written.push(named);
@@ -135,11 +145,15 @@ pub fn assign_controllers(install: &CemuInstall) -> io::Result<AssignReport> {
     Ok(report)
 }
 
-/// True when Controllers 1–4 already use Wii U Connect's profiles.
-pub fn controllers_assigned(install: &CemuInstall) -> bool {
-    controller_profiles().iter().enumerate().all(|(index, (_, expected))| {
-        fs::read_to_string(install.profiles_dir().join(format!("controller{index}.xml"))).is_ok_and(|s| s == *expected)
-    })
+/// True when Controllers 1–4 already use Wii U Connect's profiles for the DSU server on `dsu`.
+pub fn controllers_assigned(install: &CemuInstall, dsu: SocketAddrV4) -> bool {
+    controller_profiles(dsu)
+        .iter()
+        .enumerate()
+        .all(|(index, (_, expected))| {
+            fs::read_to_string(install.profiles_dir().join(format!("controller{index}.xml")))
+                .is_ok_and(|s| s == *expected)
+        })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -319,6 +333,8 @@ fn meta_name(path: &Path) -> Option<String> {
 mod tests {
     use super::*;
 
+    const DEFAULT_DSU: SocketAddrV4 = SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, wiiu_dsu::DEFAULT_PORT);
+
     struct TempDir(PathBuf);
     impl TempDir {
         fn new(tag: &str) -> Self {
@@ -388,9 +404,9 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("controller1.xml"), "<user's own config/>").unwrap();
         fs::write(dir.join("controller0.xml"), "<gamepad config/>").unwrap();
-        assert!(!controllers_assigned(&i));
+        assert!(!controllers_assigned(&i, DEFAULT_DSU));
 
-        let r = assign_controllers(&i).unwrap();
+        let r = assign_controllers(&i, DEFAULT_DSU).unwrap();
         assert_eq!(
             r.backups,
             vec![
@@ -412,13 +428,28 @@ mod tests {
             WiimoteProfile::for_player(1).to_xml()
         );
         assert!(dir.join("WiiUConnect_GamePad.xml").is_file());
-        assert!(controllers_assigned(&i));
+        assert!(controllers_assigned(&i, DEFAULT_DSU));
         // Running again changes nothing and keeps the original backup.
-        let again = assign_controllers(&i).unwrap();
+        let again = assign_controllers(&i, DEFAULT_DSU).unwrap();
         assert!(again.backups.is_empty());
         assert_eq!(
             fs::read_to_string(dir.join("controller1.xml.before-wiiu-connect")).unwrap(),
             "<user's own config/>"
+        );
+    }
+
+    #[test]
+    fn assigned_profiles_follow_the_dsu_endpoint() {
+        let t = TempDir::new("endpoint");
+        let i = portable_windows_install(&t);
+        let custom = SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 12345);
+        assign_controllers(&i, custom).unwrap();
+        let xml = fs::read_to_string(i.profiles_dir().join("controller1.xml")).unwrap();
+        assert!(xml.contains("<port>12345</port>"), "{xml}");
+        assert!(controllers_assigned(&i, custom));
+        assert!(
+            !controllers_assigned(&i, DEFAULT_DSU),
+            "a server on another port is not set up"
         );
     }
 
