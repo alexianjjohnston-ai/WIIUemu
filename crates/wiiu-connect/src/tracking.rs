@@ -10,7 +10,6 @@ use std::collections::VecDeque;
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc::UnboundedSender;
 use wiiu_controller::protocol::{GyroSample, PointerXy, ServerMessage, TrackingState};
 use wiiu_tracking::detect::{decode_jpeg_gray, TagDetector};
 use wiiu_tracking::pipeline::{DeviceGyro, Tracker};
@@ -23,6 +22,10 @@ const STATUS_INTERVAL: Duration = Duration::from_millis(100);
 const CHANNEL_CAPACITY: usize = 64;
 /// Typical phone main-camera horizontal FOV; only scales gyro-predicted motion between fixes.
 const DEFAULT_HFOV_DEG: f64 = 65.0;
+
+/// Latest tracking status for the phone. A watch channel keeps only the newest value, so a phone that stops
+/// reading can't make status messages pile up in memory.
+pub type StatusSender = tokio::sync::watch::Sender<Option<ServerMessage>>;
 
 pub enum Work {
     Frame {
@@ -53,7 +56,7 @@ pub fn spawn(
     sessions: Arc<SessionManager>,
     conn_id: u64,
     slot: usize,
-    status: UnboundedSender<ServerMessage>,
+    status: StatusSender,
 ) -> std::io::Result<TrackingHandle> {
     let (tx, rx) = sync_channel(CHANNEL_CAPACITY);
     std::thread::Builder::new()
@@ -66,7 +69,7 @@ struct Worker {
     sessions: Arc<SessionManager>,
     conn_id: u64,
     slot: usize,
-    status: UnboundedSender<ServerMessage>,
+    status: StatusSender,
     layout: MarkerLayout,
     detector: Option<TagDetector>,
     tracker: Tracker,
@@ -77,7 +80,7 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(sessions: Arc<SessionManager>, conn_id: u64, slot: usize, status: UnboundedSender<ServerMessage>) -> Self {
+    fn new(sessions: Arc<SessionManager>, conn_id: u64, slot: usize, status: StatusSender) -> Self {
         let layout = MarkerLayout::border(&BorderConfig::default());
         let detector = match TagDetector::new() {
             Ok(d) => Some(d),
@@ -194,12 +197,12 @@ impl Worker {
         }
         if now.saturating_duration_since(self.last_status) >= STATUS_INTERVAL {
             self.last_status = now;
-            let _ = self.status.send(ServerMessage::Tracking {
+            self.status.send_replace(Some(ServerMessage::Tracking {
                 state,
                 pointer: pointer.map(|(x, y)| PointerXy { x, y }),
                 tags: self.tracker.last_tag_count() as u32,
                 fixes_per_s: self.fixes.len() as f32,
-            });
+            }));
         }
     }
 }

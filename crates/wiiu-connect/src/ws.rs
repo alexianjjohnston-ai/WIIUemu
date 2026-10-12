@@ -17,20 +17,25 @@ pub const MAX_CAMERA_FPS: u32 = 60;
 /// Small delay before rejecting a bad token, to slow down guessing.
 const BAD_TOKEN_DELAY: Duration = Duration::from_millis(300);
 
+/// A phone that doesn't read its socket for this long is disconnected (its input is released).
+const SEND_TIMEOUT: Duration = Duration::from_secs(2);
+
 async fn send(socket: &mut WebSocket, msg: &ServerMessage) -> bool {
-    socket.send(Message::Text(msg.to_json().into())).await.is_ok()
+    matches!(
+        tokio::time::timeout(SEND_TIMEOUT, socket.send(Message::Text(msg.to_json().into()))).await,
+        Ok(Ok(()))
+    )
 }
 
 async fn fail(socket: &mut WebSocket, code: ErrorCode, message: impl Into<String>) {
     let message = message.into();
     tracing::info!("closing phone connection: {code:?}: {message}");
     let _ = send(socket, &ServerMessage::error(code, message)).await;
-    let _ = socket
-        .send(Message::Close(Some(CloseFrame {
-            code: 1008, // policy violation
-            reason: "".into(),
-        })))
-        .await;
+    let close = socket.send(Message::Close(Some(CloseFrame {
+        code: 1008, // policy violation
+        reason: "".into(),
+    })));
+    let _ = tokio::time::timeout(SEND_TIMEOUT, close).await;
 }
 
 enum Incoming {
@@ -151,7 +156,7 @@ async fn run_session(socket: &mut WebSocket, ctx: SessionCtx, mut replaced: toki
     let mut last_frame_seq: Option<u32> = None;
     let mut last_gyro_t: Option<u64> = None;
     let tracking_allowed = ctx.protocol >= 2 && ctx.role == Role::Wiimote;
-    let (status_tx, mut status_rx) = tokio::sync::mpsc::unbounded_channel::<ServerMessage>();
+    let (status_tx, mut status_rx) = tokio::sync::watch::channel::<Option<ServerMessage>>(None);
     let mut tracker: Option<crate::tracking::TrackingHandle> = None;
     let ensure_tracker = |tracker: &mut Option<crate::tracking::TrackingHandle>| {
         if tracker.is_none() {
@@ -166,9 +171,12 @@ async fn run_session(socket: &mut WebSocket, ctx: SessionCtx, mut replaced: toki
             _ = &mut replaced => {
                 return fail(socket, ErrorCode::Replaced, "this device connected again").await;
             }
-            Some(status) = status_rx.recv() => {
-                if !send(socket, &status).await {
-                    return;
+            Ok(()) = status_rx.changed() => {
+                let status = status_rx.borrow_and_update().clone();
+                if let Some(status) = status {
+                    if !send(socket, &status).await {
+                        return;
+                    }
                 }
                 continue;
             }
