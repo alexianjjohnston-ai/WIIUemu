@@ -1,8 +1,8 @@
 // Test fixtures: a mocked PC server (page.routeWebSocket) and real multi-touch via CDP.
 
 import { test as base, expect, type CDPSession, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
-import { validateClientFrame } from '../src/protocol/validate';
-import type { HelloMessage, InputMessage } from '../src/protocol/types';
+import { validateCameraFrame, validateClientFrame, validateGyro } from '../src/protocol/validate';
+import type { GyroMessage, HelloMessage, InputMessage, TrackingMessage } from '../src/protocol/types';
 
 export interface WelcomeOptions {
   slot: number;
@@ -19,7 +19,12 @@ export class MockServer {
   connections = 0;
   hellos: (HelloMessage & Received)[] = [];
   inputs: (InputMessage & Received)[] = [];
+  gyro: (GyroMessage & Received)[] = [];
+  /** Binary camera frames (protocol 2), header fields decoded. */
+  frames: { width: number; height: number; seq: number; bytes: number; jpegMagic: boolean; conn: number }[] = [];
   violations: string[] = [];
+  /** Protocol version the mock answers with in `welcome`. */
+  protocol = 2;
   current: WebSocketRoute | null = null;
   /** Reply to hello with welcome automatically (set to null to answer manually). */
   autoWelcome: WelcomeOptions | null = { slot: 1, player: 1 };
@@ -35,8 +40,26 @@ export class MockServer {
         return;
       }
       this.current = ws;
+      let lastSeq: number | null = null;
+      let lastGyroT: number | null = null;
       ws.onMessage((frame) => {
-        const text = typeof frame === 'string' ? frame : frame.toString('utf8');
+        if (typeof frame !== 'string') {
+          const bytes = new Uint8Array(frame);
+          if (this.protocol < 2) this.violations.push('binary frame on a protocol 1 connection');
+          for (const e of validateCameraFrame(bytes, lastSeq)) this.violations.push(`camera_frame: ${e}`);
+          const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+          lastSeq = view.getUint32(8, true);
+          this.frames.push({
+            width: view.getUint16(2, true),
+            height: view.getUint16(4, true),
+            seq: lastSeq,
+            bytes: bytes.length,
+            jpegMagic: bytes[20] === 0xff && bytes[21] === 0xd8,
+            conn,
+          });
+          return;
+        }
+        const text = frame;
         for (const e of validateClientFrame(text, 'wiimote')) this.violations.push(`${e} in ${text}`);
         const msg = JSON.parse(text) as { type: string; id?: number };
         const meta = { conn, at: Date.now() };
@@ -51,13 +74,25 @@ export class MockServer {
           case 'ping':
             ws.send(JSON.stringify({ type: 'pong', id: msg.id }));
             break;
+          case 'gyro': {
+            const gyro = msg as GyroMessage;
+            if (this.protocol < 2) this.violations.push('gyro on a protocol 1 connection');
+            for (const e of validateGyro(gyro, lastGyroT)) this.violations.push(`gyro: ${e}`);
+            lastGyroT = gyro.samples.at(-1)?.[0] ?? lastGyroT;
+            this.gyro.push({ ...gyro, ...meta });
+            break;
+          }
         }
       });
     });
   }
 
   welcome(opts: WelcomeOptions, ws: WebSocketRoute | null = this.current): void {
-    ws?.send(JSON.stringify({ type: 'welcome', protocol: 1, role: 'wiimote', ...opts }));
+    ws?.send(JSON.stringify({ type: 'welcome', protocol: this.protocol, role: 'wiimote', ...opts }));
+  }
+
+  sendTracking(msg: Omit<TrackingMessage, 'type'>): void {
+    this.current?.send(JSON.stringify({ type: 'tracking', ...msg }));
   }
 
   sendError(code: string, message: string): void {
