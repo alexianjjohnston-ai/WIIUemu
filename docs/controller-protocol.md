@@ -124,8 +124,12 @@ the four phones exactly.
 
 ## Protocol version 2: camera tracking (Wii Remote role)
 
-> Status: implemented on the server (`crates/wiiu-connect/src/tracking.rs`) and tested end to end with synthetic
-> JPEG frames. The phone client does not send frames yet. See ADR-0001.
+> Status: implemented on the server (`crates/wiiu-connect/src/tracking.rs`) and in the phone app
+> (`apps/phone/src/tracking/`). Tested end to end with synthetic JPEG frames, and with Chromium's fake camera
+> playing the `/tracking` border into the real server. **Not yet tested on real phones.** See ADR-0001.
+>
+> The phone always sends `"protocol": 2` and accepts a `welcome` with 1 or 2. On version 1 it hides camera
+> pointing.
 
 Version 2 is version 1 plus two messages, so a phone can let the PC compute its pointer from the camera. A phone
 sends `"protocol": 2` in `hello`. The server accepts both 1 and 2 and replies with the version it accepted in

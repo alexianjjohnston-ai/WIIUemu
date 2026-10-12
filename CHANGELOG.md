@@ -20,5 +20,8 @@ All notable changes to this project are documented here. The format follows
 - `apps/phone`: Wii Remote PWA (React + TypeScript). Authentic and comfort layouts, left-handed mode, button
   size, multi-touch, haptics where supported, reconnect with backoff, release on hide/blur/disconnect, and
   Playwright e2e tests against a mocked server.
+- Camera pointing (protocol v2): `wiiu-tracking` (pointing math, gyro fusion, tag rendering), vendored AprilTag
+  detector, a server tracking worker per Wii Remote, HTTPS for phones, the `/tracking` TV border page, and the
+  phone app's camera and gyro streaming with on-screen tracking feedback. Not yet tested on real phones.
 - CI for Rust (Linux and Windows), the phone app, and security scanning.
 - Documentation: architecture, protocol, research, tracking design, tools, compatibility, progress.

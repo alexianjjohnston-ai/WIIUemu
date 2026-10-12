@@ -97,7 +97,9 @@ Rust crates can be compiled to WASM once a toolchain is set up; Option B doesn't
    payload ≤ 64 KB) and `gyro` batches. Size limits and rate caps per slot.
 3. [x] Server pipeline per Wii Remote slot: decode → detect → `estimate_aim` → `PointerFusion` → DSU touch point,
    with timing metrics exposed on `/api/status` (metrics still to do).
-4. [ ] Phone: camera capture worker (rear camera, 640×360, grayscale JPEG via `OffscreenCanvas.convertToBlob`),
-   gyro streaming from `DeviceMotionEvent` (requires the HTTPS listener).
+4. [x] Phone: camera capture worker (rear camera, 640×360, grayscale JPEG via `OffscreenCanvas.convertToBlob`),
+   gyro streaming from `DeviceMotionEvent` (requires the HTTPS listener). Done in `apps/phone/src/tracking/`.
+   The encode runs on the main thread via `OffscreenCanvas.convertToBlob` (a worker isn't needed so far). Frames
+   are colour JPEG at 1280×720 capture, downscaled to ≤ 640 px.
 5. [ ] Measure on real phones: fix rate, end-to-end latency, aiming error and battery. Record the results in
    `docs/tracking.md` and confirm or supersede this ADR.

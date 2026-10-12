@@ -1,8 +1,9 @@
 # Camera tracking and calibration
 
-> **Status (2026-10-12):** pointing math, gyro fusion, tag rendering, the TV border page (`/tracking`) and HTTPS
-> for phones are implemented and tested synthetically. Not built yet: on-phone detection (camera + AprilTag
-> WASM), the calibration UI, and physical measurements.
+> **Status (2026-10-12):** pointing math, gyro fusion, tag rendering, the TV border page (`/tracking`), HTTPS for
+> phones, PC-side detection and the phone's camera and gyro streaming are implemented. They are tested
+> synthetically and with a simulated phone camera. Not built yet: the calibration UI and physical measurements
+> on real phones.
 
 ## Important ergonomic constraint: camera orientation
 
@@ -26,6 +27,37 @@ decode → detect → `Tracker` and writes the pointer into that player's DSU sl
 `pointer` field for 2 s after each update. When frames arrive faster than they can be processed, only the newest
 is kept. The phone receives `tracking` feedback at about 10 Hz. An end-to-end test drives this path with a real
 JPEG over the WebSocket and checks the pointer Cemu would receive.
+
+## Phone side (protocol v2)
+
+The camera button in the phone's top bar turns camera pointing on (`apps/phone/src/tracking/`):
+
+- **Camera:** the rear camera is requested at 1280×720. Asking for 4:3 made Chromium crop the sides off, and only
+  4 of 10 tags stayed visible. Frames are scaled so the long side is at most 640, encoded as JPEG, and sent as
+  binary `camera_frame`s. Capture time comes from `requestVideoFrameCallback`, falling back to `performance.now()`.
+  Frame pacing:
+  - The target is 30 fps, with one encode in flight at a time.
+  - A frame is only sent once the socket has drained (≤ 16 KiB buffered), so frames never queue and never delay
+    button snapshots.
+  - JPEG quality adapts to keep frames under the 64 KiB limit.
+- **Gyro:** `DeviceMotionEvent.rotationRate` is converted to rad/s in the device frame and sent in batches of
+  16 ms or less, on the same `performance.now()` clock as the camera. On iOS, motion access is requested from the
+  tap. If it is denied, the camera works alone.
+- **Privacy and lifecycle:** the camera stops when the page is hidden and restarts when it comes back. It stops
+  for good when the user leaves the controller screen.
+- **Feedback:** the status line shows the PC's `tracking` message ("Aiming at the TV · 10 tags · 18 fps", "Tags
+  out of view · using motion", or "Point the back camera at the TV border").
+
+**Simulated check (dev container, 2026-10-12).** Chromium was given a fake camera playing a 1280×720 capture of
+`/tracking`, and the phone page connected over `wss` to the real server:
+- All 10 tags were detected, at about 18 fixes/s. The rate is limited by software JPEG encoding in headless
+  Chromium.
+- The server pointer was (0.500, 0.500), and DSU slot 1 reported touch (960, 471), the screen centre Cemu would
+  receive.
+
+Real phones, real TVs, lighting and motion blur are still unmeasured.
+
+![Phone camera pointing](images/phone-camera-tracking.png)
 
 ## Decision: detection runs on the PC
 
