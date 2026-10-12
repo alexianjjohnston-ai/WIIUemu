@@ -44,6 +44,21 @@ jobs:
           path: target/release/wiiu-connect.exe
           retention-days: 7
 
+  rust-macos:
+    name: Rust (macOS build + test)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --locked
+      - run: cargo build --release --locked -p wiiu-connect
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wiiu-connect-macos-${{ runner.arch }}
+          path: target/release/wiiu-connect
+          retention-days: 7
+
   phone:
     name: Phone app (typecheck, lint, unit, build, e2e)
     runs-on: ubuntu-latest
