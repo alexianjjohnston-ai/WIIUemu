@@ -257,3 +257,26 @@ async fn pc_only_pages_require_local_host_header() {
     let status = get("/api/status", format!("localhost:{port}")).await;
     assert!(status.contains("\"role\":\"gamepad\""));
 }
+
+#[tokio::test]
+async fn tracking_layout_is_public_and_complete() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (r, _stop) = server().await;
+    let mut s = tokio::net::TcpStream::connect(r.http_addr).await.unwrap();
+    s.write_all(b"GET /api/tracking/layout HTTP/1.1\r\nHost: 192.168.1.20:8737\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut out = String::new();
+    s.read_to_string(&mut out).await.unwrap();
+    assert!(out.starts_with("HTTP/1.1 200"), "{out}");
+    let body: Value = serde_json::from_str(out.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(body["family"], "tag36h11");
+    let markers = body["markers"].as_array().unwrap();
+    assert_eq!(markers.len(), 10);
+    for m in markers {
+        let cells = m["cells"].as_str().unwrap();
+        assert_eq!(cells.split('/').count(), 10);
+        assert!(cells.split('/').all(|row| row.len() == 10));
+        assert_eq!(m["corners"].as_array().unwrap().len(), 4);
+    }
+}

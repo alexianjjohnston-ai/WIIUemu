@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wii U Connect – Pointer test</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0d0f12; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hint { position: fixed; left: 50%; bottom: 14%; transform: translateX(-50%); color: #9aa1ab;
+          font: 15px/1.4 system-ui, sans-serif; text-align: center; pointer-events: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">Show this page fullscreen on the TV (F11). Point a phone at the screen: each player's pointer appears as a coloured ring.<br>
+Double-click to toggle fullscreen.</div>
+<script>
+"use strict";
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+const COLORS = ['#f5f5f5', '#2bb5e8', '#e8452b', '#3fcf5a'];
+let layout = null, slots = [], view = null;
+
+async function loadLayout() {
+  layout = await (await fetch('/api/tracking/layout', { cache: 'no-store' })).json();
+  resize();
+}
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(innerWidth * dpr);
+  canvas.height = Math.round(innerHeight * dpr);
+  if (!layout) return;
+  // Bounding box of all tags incl. their 1-cell white quiet zone, in game-height units (x scaled by aspect).
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const m of layout.markers) {
+    const [bl, br, , tl] = m.corners;
+    const cell = (bl[1] - tl[1]) / 8;
+    minX = Math.min(minX, tl[0] * layout.aspect - cell); maxX = Math.max(maxX, br[0] * layout.aspect + cell);
+    minY = Math.min(minY, tl[1] - cell); maxY = Math.max(maxY, bl[1] + cell);
+  }
+  const margin = 0.02 * Math.min(canvas.width, canvas.height);
+  const s = Math.min((canvas.width - 2 * margin) / (maxX - minX), (canvas.height - 2 * margin) / (maxY - minY));
+  view = {
+    s,
+    ox: (canvas.width - (maxX - minX) * s) / 2 - minX * s,
+    oy: (canvas.height - (maxY - minY) * s) / 2 - minY * s,
+  };
+}
+
+// game-normalised -> canvas px
+function px(x, y) { return [view.ox + x * layout.aspect * view.s, view.oy + y * view.s]; }
+
+function drawTag(m) {
+  const rows = m.cells.split('/');
+  const [, , , tl] = m.corners;
+  const [bx, by] = px(tl[0], tl[1]);
+  const [ex] = px(m.corners[1][0], 0);
+  const cell = (ex - bx) / 8;
+  for (let r = 0; r < rows.length; r++) {
+    for (let c = 0; c < rows[r].length; c++) {
+      ctx.fillStyle = rows[r][c] === '1' ? '#fff' : '#000';
+      const x0 = Math.round(bx + (c - 1) * cell), y0 = Math.round(by + (r - 1) * cell);
+      const x1 = Math.round(bx + c * cell), y1 = Math.round(by + r * cell);
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    }
+  }
+}
+
+function draw() {
+  requestAnimationFrame(draw);
+  ctx.fillStyle = '#0d0f12';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (!layout || !view) return;
+  // Game area with a test grid.
+  const [gx, gy] = px(0, 0), [gx1, gy1] = px(1, 1);
+  ctx.fillStyle = '#1a1e23';
+  ctx.fillRect(gx, gy, gx1 - gx, gy1 - gy);
+  ctx.strokeStyle = '#2c333b'; ctx.lineWidth = 1;
+  for (let i = 1; i < 10; i++) {
+    const [x] = px(i / 10, 0), [, y] = px(0, i / 10);
+    ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x, gy1); ctx.moveTo(gx, y); ctx.lineTo(gx1, y); ctx.stroke();
+  }
+  const [cx, cy] = px(0.5, 0.5);
+  ctx.strokeStyle = '#59636e'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx, cy, 18, 0, Math.PI * 2); ctx.moveTo(cx - 30, cy); ctx.lineTo(cx + 30, cy);
+  ctx.moveTo(cx, cy - 30); ctx.lineTo(cx, cy + 30); ctx.stroke();
+  for (const m of layout.markers) drawTag(m);
+  // Live pointers.
+  ctx.font = `${Math.round(view.s * 0.03)}px system-ui, sans-serif`;
+  for (const s of slots) {
+    if (!s.connected || !s.pointer) continue;
+    const [x, y] = px(s.pointer[0], s.pointer[1]);
+    ctx.strokeStyle = ctx.fillStyle = COLORS[s.slot % COLORS.length];
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(x, y, view.s * 0.025, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillText(s.role === 'gamepad' ? 'GamePad' : 'P' + s.player, x + view.s * 0.03, y - view.s * 0.03);
+  }
+}
+
+async function poll() {
+  try { slots = await (await fetch('/api/status', { cache: 'no-store' })).json(); } catch { /* retry */ }
+  setTimeout(poll, 50);
+}
+
+addEventListener('resize', resize);
+addEventListener('dblclick', () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen());
+loadLayout(); poll(); draw();
+</script>
+</body>
+</html>

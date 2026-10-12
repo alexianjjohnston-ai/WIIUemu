@@ -14,6 +14,7 @@ path = "src/main.rs"
 wiiu-dsu.workspace = true
 wiiu-controller.workspace = true
 wiiu-cemu.workspace = true
+wiiu-tracking.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

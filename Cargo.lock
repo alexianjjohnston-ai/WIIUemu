@@ -1102,6 +1102,7 @@ dependencies = [
  "wiiu-cemu",
  "wiiu-controller",
  "wiiu-dsu",
+ "wiiu-tracking",
 ]
 
 [[package]]

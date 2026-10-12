@@ -40,7 +40,9 @@ pub fn router(state: AppState) -> Router {
         .route("/ws", get(ws_upgrade))
         .route("/pair", get(pair_page))
         .route("/dev/pointer", get(dev_pointer_page))
-        .route("/api/status", get(status));
+        .route("/api/status", get(status))
+        .route("/tracking", get(tracking_page))
+        .route("/api/tracking/layout", get(tracking_layout));
     app = match state.config.web_dir.clone().filter(|d| d.join("index.html").is_file()) {
         Some(dir) => {
             let index = dir.join("index.html");
@@ -159,6 +161,48 @@ async fn dev_pointer_page(
     let token_js = serde_json::to_string(state.sessions.token()).expect("string serializes");
     let html = include_str!("../web/dev-pointer.html").replace("\"{{TOKEN_JSON}}\"", &token_js);
     no_store(Html(html).into_response())
+}
+
+/// TV-side page: the AprilTag border around a test target, with live pointers of all players.
+async fn tracking_page(ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap) -> Response {
+    if let Some(r) = reject_remote(peer, &headers) {
+        return r;
+    }
+    Html(include_str!("../web/tracking.html")).into_response()
+}
+
+#[derive(serde::Serialize)]
+struct LayoutMarker {
+    id: u32,
+    /// Black-border corners, game-normalised, in `wiiu_tracking::markers::CORNER_ORDER`.
+    corners: [[f64; 2]; 4],
+    /// `TOTAL_WIDTH` rows of '1' (white) / '0' (black) joined by '/', including the quiet zone.
+    cells: String,
+}
+
+#[derive(serde::Serialize)]
+struct LayoutResponse {
+    aspect: f64,
+    family: &'static str,
+    markers: Vec<LayoutMarker>,
+}
+
+/// Marker layout. Not secret: phones need it to turn detections into an aim point.
+async fn tracking_layout() -> Json<LayoutResponse> {
+    let layout = wiiu_tracking::MarkerLayout::border(&wiiu_tracking::BorderConfig::default());
+    Json(LayoutResponse {
+        aspect: layout.aspect,
+        family: "tag36h11",
+        markers: layout
+            .markers
+            .iter()
+            .map(|m| LayoutMarker {
+                id: m.id,
+                corners: m.corners,
+                cells: wiiu_tracking::tags::render_string(m.id as usize).expect("layout ids are valid tags"),
+            })
+            .collect(),
+    })
 }
 
 async fn no_web_app() -> Html<&'static str> {
