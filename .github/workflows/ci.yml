@@ -67,18 +67,31 @@ jobs:
         working-directory: apps/phone
     steps:
       - uses: actions/checkout@v4
+      - name: Detect phone app
+        id: app
+        working-directory: .
+        run: |
+          if [ -f apps/phone/package-lock.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; echo "apps/phone not present on this branch; skipping"; fi
       - uses: actions/setup-node@v4
+        if: steps.app.outputs.present == 'true'
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: apps/phone/package-lock.json
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - if: steps.app.outputs.present == 'true'
+        run: npm ci
+      - if: steps.app.outputs.present == 'true'
+        run: npm run typecheck
+      - if: steps.app.outputs.present == 'true'
+        run: npm run lint
+      - if: steps.app.outputs.present == 'true'
+        run: npm test
+      - if: steps.app.outputs.present == 'true'
+        run: npm run build
+      - if: steps.app.outputs.present == 'true'
+        run: npx playwright install --with-deps chromium
+      - if: steps.app.outputs.present == 'true'
+        run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
