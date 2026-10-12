@@ -163,3 +163,19 @@ commit `aa20e2f`), and `crates/wiiu-dsu` tests them byte for byte.
 
 Wii Remote HOME is carried on L3 because Cemu ignores the DSU `PS` byte. `wiiu-connect cemu-profile` writes a
 Cemu controller profile with exactly these bindings, so you don't have to bind each button by hand in Cemu.
+
+### Button mapping (GamePad → DSU slot 0 → Cemu profile)
+
+| GamePad | DSU input | Cemu button id | Cemu VPAD mapping id |
+|---------|-----------|----------------|----------------------|
+| A / B / X / Y | Circle / Cross / Triangle / Square | 13 / 14 / 12 / 15 | 1 / 2 / 3 / 4 |
+| L / R / ZL / ZR | L1 / R1 / L2 / R2 | 10 / 11 / 8 / 9 | 5 / 6 / 7 / 8 |
+| + / − | Options / Share | 3 / 0 | 9 / 10 |
+| D-pad ↑ ↓ ← → | state1 Up/Down/Left/Right | 4 / 6 / 7 / 5 | 11 / 12 / 13 / 14 |
+| L3 / R3 | L3 / R3 | 1 / 2 | 15 / 16 |
+| HOME | touchpad-click byte | 16 | 27 |
+| Left stick | lx/ly | 38/39/44/45 | 17–20 |
+| Right stick | rx/ry | 40/41/46/47 | 21–24 |
+| Touchscreen | touch point 1 | position | – (VPADController reads the position directly) |
+
+`wiiu-connect cemu-profile` also writes `WiiUConnect_GamePad.xml` with these bindings. Load it on Controller 1.
