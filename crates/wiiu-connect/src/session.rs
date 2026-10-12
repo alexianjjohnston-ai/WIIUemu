@@ -39,6 +39,52 @@ struct SlotSession {
     stale: bool,
     input: ControllerInput,
     motion_clock: MotionClock,
+    /// Last motion sample written to the pad, reused when only the pointer changes.
+    last_motion: Option<wiiu_dsu::Motion>,
+    /// Server-computed (camera tracking) pointer; `None` = no fix or off screen.
+    tracked_pointer: Option<(f32, f32)>,
+    /// When the last camera frame was accepted. While recent, `tracked_pointer` replaces `input.pointer`.
+    camera_frame_at: Option<Instant>,
+    /// Latest tracking diagnostics from the worker, for the PC's `/tracking` page.
+    tracking_diag: Option<TrackingDiag>,
+}
+
+/// Camera-tracking numbers shown on the PC's `/tracking` page (for diagnosing real-world tracking quality).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct TrackingDiag {
+    /// Camera frame size `[width, height]`.
+    pub frame: [u16; 2],
+    pub frames_per_s: f32,
+    pub fixes_per_s: f32,
+    pub tags: u32,
+    /// Mean decode + detection time per frame, ms.
+    pub detect_ms: f32,
+    pub gyro_per_s: f32,
+    /// Learned gyro → camera map (`[[1,0],[0,1]]` = gyro as expected, zeros = gyro ignored).
+    pub gyro_map: [[f32; 2]; 2],
+}
+
+/// The server-computed pointer owns the slot until this long after the last accepted camera frame
+/// (docs/controller-protocol.md, "Pointer ownership").
+pub const TRACKED_POINTER_TTL: Duration = Duration::from_secs(2);
+
+impl SlotSession {
+    fn effective_input(&self, now: Instant) -> ControllerInput {
+        let mut input = self.input;
+        if self
+            .camera_frame_at
+            .is_some_and(|at| now.saturating_duration_since(at) < TRACKED_POINTER_TTL)
+        {
+            input.pointer = self.tracked_pointer;
+        }
+        input
+    }
+
+    fn clear_tracking(&mut self) {
+        self.tracked_pointer = None;
+        self.camera_frame_at = None;
+        self.tracking_diag = None;
+    }
 }
 
 #[derive(Debug)]
@@ -61,6 +107,8 @@ pub struct SlotStatus {
     pub stale: bool,
     pub buttons: u32,
     pub pointer: Option<(f32, f32)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tracking: Option<TrackingDiag>,
 }
 
 pub struct SessionManager {
@@ -102,6 +150,10 @@ impl SessionManager {
                         stale: false,
                         input: ControllerInput::default(),
                         motion_clock: MotionClock::default(),
+                        last_motion: None,
+                        tracked_pointer: None,
+                        tracking_diag: None,
+                        camera_frame_at: None,
                     })
                     .collect(),
             }),
@@ -163,8 +215,12 @@ impl SessionManager {
         sess.stale = false;
         sess.input = ControllerInput::default();
         sess.motion_clock.reset_session();
-        drop(inner);
+        sess.last_motion = None;
+        sess.clear_tracking();
+        // Publish while still holding the session lock (lock order: sessions, then table), so a write from
+        // another thread (e.g. a tracking worker) can never land after this one with stale state.
         self.table.set_pad(slot, PadData::neutral());
+        drop(inner);
 
         let (role, player) = slot_layout(slot);
         Ok(Assignment {
@@ -196,10 +252,49 @@ impl SessionManager {
         sess.last_input = now;
         sess.stale = false;
         sess.input = input;
-        let motion = input.motion.map(|m| sess.motion_clock.map(&m, server_us));
-        drop(inner);
-        self.table.set_pad(slot, to_pad(role, &input, motion));
+        if let Some(m) = input.motion {
+            sess.last_motion = Some(sess.motion_clock.map(&m, server_us));
+        }
+        let pad = to_pad(role, &sess.effective_input(now), sess.last_motion);
+        self.table.set_pad(slot, pad);
         Ok(())
+    }
+
+    /// Records that `conn_id` delivered a camera frame for `slot`: the server-computed pointer owns the slot for
+    /// the next `TRACKED_POINTER_TTL`. Ignored for non-owners and stale slots.
+    pub fn note_camera_frame(&self, conn_id: u64, slot: usize, now: Instant) {
+        self.update_tracking(conn_id, slot, now, |sess| sess.camera_frame_at = Some(now));
+    }
+
+    /// Sets the camera-tracked pointer for `slot` (if `conn_id` owns it) and republishes the pad.
+    /// `None` means "no fix, or not pointing at the screen".
+    pub fn set_tracked_pointer(&self, conn_id: u64, slot: usize, pointer: Option<(f32, f32)>, now: Instant) {
+        let pointer = pointer.filter(|(x, y)| (0.0..=1.0).contains(x) && (0.0..=1.0).contains(y));
+        self.update_tracking(conn_id, slot, now, |sess| sess.tracked_pointer = pointer);
+    }
+
+    /// Stores the worker's latest diagnostics for `slot` (owner only).
+    pub fn set_tracking_diag(&self, conn_id: u64, slot: usize, diag: TrackingDiag) {
+        let mut inner = self.lock();
+        if let Some(sess) = inner.slots.get_mut(slot) {
+            if sess.owner.as_ref().map(|o| o.conn_id) == Some(conn_id) {
+                sess.tracking_diag = Some(diag);
+            }
+        }
+    }
+
+    fn update_tracking(&self, conn_id: u64, slot: usize, now: Instant, update: impl FnOnce(&mut SlotSession)) {
+        let (role, _) = slot_layout(slot);
+        let mut inner = self.lock();
+        let Some(sess) = inner.slots.get_mut(slot) else {
+            return;
+        };
+        if sess.owner.as_ref().map(|o| o.conn_id) != Some(conn_id) || sess.stale {
+            return;
+        }
+        update(sess);
+        let pad = to_pad(role, &sess.effective_input(now), sess.last_motion);
+        self.table.set_pad(slot, pad);
     }
 
     /// Releases the slot if `conn_id` still owns it: buttons up, sticks centred, pointer hidden.
@@ -214,7 +309,8 @@ impl SessionManager {
         sess.owner = None;
         sess.input = ControllerInput::default();
         sess.stale = false;
-        drop(inner);
+        sess.clear_tracking();
+        sess.last_motion = None;
         self.table.set_pad(slot, PadData::neutral());
     }
 
@@ -226,12 +322,10 @@ impl SessionManager {
             if sess.owner.is_some() && !sess.stale && now.saturating_duration_since(sess.last_input) >= STALE_AFTER {
                 sess.stale = true;
                 sess.input = ControllerInput::default();
+                sess.clear_tracking();
+                self.table.set_pad(i, PadData::neutral());
                 neutralised.push(i);
             }
-        }
-        drop(inner);
-        for &i in &neutralised {
-            self.table.set_pad(i, PadData::neutral());
         }
         neutralised
     }
@@ -252,7 +346,8 @@ impl SessionManager {
                     device_name: s.owner.as_ref().and_then(|o| o.name.clone()),
                     stale: s.stale,
                     buttons: s.input.buttons.0,
-                    pointer: s.input.pointer,
+                    pointer: s.effective_input(Instant::now()).pointer,
+                    tracking: s.tracking_diag.clone(),
                 }
             })
             .collect()
@@ -440,6 +535,118 @@ mod tests {
         m.apply_input(a.conn_id, a.slot, &input(1, &["A"], None), now).unwrap();
         assert!(m.apply_input(a.conn_id, a.slot, &input(2, &["ZR"], None), now).is_err());
         assert_eq!(table.pad(1).unwrap().buttons, dsu::CROSS);
+    }
+
+    #[test]
+    fn tracked_pointer_owns_the_slot_while_camera_frames_arrive() {
+        let (m, table) = manager();
+        let t0 = Instant::now();
+        let a = m.authenticate(&hello(Role::Wiimote, "device-aaaa"), t0).unwrap();
+        m.apply_input(a.conn_id, a.slot, &input(1, &["B"], Some((0.1, 0.1))), t0)
+            .unwrap();
+        // A fix without camera frames doesn't take over.
+        m.set_tracked_pointer(a.conn_id, a.slot, Some((0.5, 0.5)), t0);
+        assert_eq!(table.pad(1).unwrap().touch[0].unwrap().x, 192);
+        m.note_camera_frame(a.conn_id, a.slot, t0);
+        let pad = table.pad(1).unwrap();
+        assert_eq!(pad.buttons, dsu::CIRCLE, "buttons kept");
+        assert_eq!(pad.touch[0].unwrap().x, 960, "tracked pointer wins");
+        // Phone input while tracking is fresh keeps the tracked pointer.
+        m.apply_input(
+            a.conn_id,
+            a.slot,
+            &input(2, &["A"], Some((0.1, 0.1))),
+            t0 + Duration::from_millis(500),
+        )
+        .unwrap();
+        assert_eq!(table.pad(1).unwrap().touch[0].unwrap().x, 960);
+        // Tracked "off screen" hides the pointer, and keeps owning it while frames keep coming.
+        m.set_tracked_pointer(a.conn_id, a.slot, None, t0 + Duration::from_millis(600));
+        assert_eq!(table.pad(1).unwrap().touch[0], None);
+        m.note_camera_frame(a.conn_id, a.slot, t0 + Duration::from_millis(1900));
+        m.apply_input(
+            a.conn_id,
+            a.slot,
+            &input(3, &[], Some((0.1, 0.1))),
+            t0 + Duration::from_millis(3800),
+        )
+        .unwrap();
+        assert_eq!(
+            table.pad(1).unwrap().touch[0],
+            None,
+            "frame at 1.9 s still owns at 3.8 s"
+        );
+        // 2 s after the last frame the phone's own pointer applies again.
+        m.apply_input(
+            a.conn_id,
+            a.slot,
+            &input(4, &[], Some((0.1, 0.1))),
+            t0 + Duration::from_millis(3950),
+        )
+        .unwrap();
+        assert_eq!(table.pad(1).unwrap().touch[0].unwrap().x, 192);
+    }
+
+    #[test]
+    fn tracked_pointer_respects_ownership_and_range() {
+        let (m, table) = manager();
+        let t0 = Instant::now();
+        let a = m.authenticate(&hello(Role::Wiimote, "device-aaaa"), t0).unwrap();
+        let b = m.authenticate(&hello(Role::Wiimote, "device-bbbb"), t0).unwrap();
+        m.note_camera_frame(a.conn_id, b.slot, t0);
+        m.set_tracked_pointer(a.conn_id, b.slot, Some((0.5, 0.5)), t0);
+        assert_eq!(table.pad(b.slot).unwrap().touch[0], None, "cannot write another slot");
+        m.note_camera_frame(a.conn_id, a.slot, t0);
+        m.set_tracked_pointer(a.conn_id, a.slot, Some((1.5, 0.5)), t0);
+        assert_eq!(
+            table.pad(a.slot).unwrap().touch[0],
+            None,
+            "off-screen values hide the pointer"
+        );
+        m.disconnect(a.conn_id, a.slot);
+        m.set_tracked_pointer(a.conn_id, a.slot, Some((0.5, 0.5)), t0);
+        assert_eq!(
+            table.pad(a.slot).unwrap(),
+            PadData::neutral(),
+            "no writes after disconnect"
+        );
+    }
+
+    /// Regression (QA): a tracking worker racing with disconnect/watchdog must never leave input held.
+    #[test]
+    fn concurrent_tracking_writes_never_leave_input_held() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        let table = SlotTable::new();
+        let m = Arc::new(SessionManager::new(TOKEN.into(), table.clone()));
+        for round in 0..400 {
+            let t0 = Instant::now();
+            let a = m.authenticate(&hello(Role::Wiimote, "device-aaaa"), t0).unwrap();
+            m.apply_input(a.conn_id, a.slot, &input(1, &["A"], None), t0).unwrap();
+            m.note_camera_frame(a.conn_id, a.slot, t0);
+            let stop = Arc::new(AtomicBool::new(false));
+            let worker = {
+                let (m, stop) = (m.clone(), stop.clone());
+                let (conn, slot) = (a.conn_id, a.slot);
+                std::thread::spawn(move || {
+                    while !stop.load(Ordering::Relaxed) {
+                        m.set_tracked_pointer(conn, slot, Some((0.5, 0.5)), Instant::now());
+                    }
+                })
+            };
+            // Let the worker get going, then release the slot underneath it.
+            std::thread::sleep(Duration::from_micros(50));
+            if round % 2 == 0 {
+                m.disconnect(a.conn_id, a.slot);
+            } else {
+                m.watchdog(t0 + STALE_AFTER);
+            }
+            std::thread::sleep(Duration::from_micros(50));
+            stop.store(true, Ordering::Relaxed);
+            worker.join().unwrap();
+            assert_eq!(table.pad(a.slot).unwrap(), PadData::neutral(), "round {round}");
+            m.disconnect(a.conn_id, a.slot);
+        }
     }
 
     #[test]

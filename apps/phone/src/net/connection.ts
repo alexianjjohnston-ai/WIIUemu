@@ -1,7 +1,14 @@
 // WebSocket connection to the PC: handshake, keep-alive pings, automatic reconnect with backoff.
 // Pure TypeScript; the WebSocket constructor is injectable so the state machine can be unit-tested.
 
-import { PROTOCOL_VERSION, type ClientMessage, type HelloMessage, type WelcomeMessage } from '../protocol/types';
+import {
+  MIN_PROTOCOL_VERSION,
+  PROTOCOL_VERSION,
+  type ClientMessage,
+  type HelloMessage,
+  type TrackingMessage,
+  type WelcomeMessage,
+} from '../protocol/types';
 import { parseServerMessage } from '../protocol/validate';
 import { backoffDelay, DEFAULT_BACKOFF, type BackoffOptions } from './backoff';
 import { isTerminal, type ConnError } from './errors';
@@ -21,15 +28,21 @@ export interface SocketLike {
   onmessage: ((ev: MessageEvent) => void) | null;
   onclose: ((ev: CloseEvent) => void) | null;
   onerror: ((ev: Event) => void) | null;
-  send(data: string): void;
+  binaryType?: BinaryType;
+  send(data: string | Uint8Array): void;
   close(code?: number, reason?: string): void;
 }
 
 export type SocketFactory = (url: string) => SocketLike;
 
 const OPEN = 1;
-/** Skip sends while this much data is still queued: snapshots are idempotent, so newer ones win. */
-const MAX_BUFFERED_BYTES = 16 * 1024;
+/**
+ * Skip input snapshots only while this much data is still queued (a congested link): snapshots are idempotent, so
+ * newer ones win. Leaves room for one in-flight camera frame so frames never delay button input.
+ */
+const MAX_BUFFERED_BYTES = 128 * 1024;
+/** Send a camera frame only once the previous one has mostly left the phone, so frames never queue up. */
+const MAX_BUFFERED_BEFORE_FRAME = 16 * 1024;
 
 export interface ConnectionOptions {
   url: string;
@@ -50,6 +63,8 @@ export interface ConnectionEvents {
   onReady?: () => void;
   /** The socket that was ready went away (always paired with a previous onReady). */
   onDown?: () => void;
+  /** Protocol 2 camera-tracking feedback from the PC. */
+  onTracking?: (msg: TrackingMessage) => void;
 }
 
 export class Connection {
@@ -62,6 +77,9 @@ export class Connection {
   private ready = false;
   private failures = 0;
   private lastError: ConnError | null = null;
+  /** Version sent in `hello`; drops to MIN_PROTOCOL_VERSION once an older PC rejects the newer one. */
+  private helloProtocol: number = PROTOCOL_VERSION;
+  private retryOlderProtocol = false;
   private lastHeardAt = 0;
   private pingId = 0;
   private pingSentAt = new Map<number, number>();
@@ -96,6 +114,7 @@ export class Connection {
   start(): void {
     if (this.state.status === 'idle' || this.state.status === 'failed') {
       this.failures = 0;
+      this.helloProtocol = PROTOCOL_VERSION;
       this.open();
     }
   }
@@ -120,6 +139,7 @@ export class Connection {
     const ws = this.socket;
     if (!ws || ws.readyState !== OPEN) return false;
     if (msg.type === 'input' && ws.bufferedAmount > MAX_BUFFERED_BYTES) return false;
+    if (msg.type === 'gyro' && !this.supportsTracking) return false;
     try {
       ws.send(JSON.stringify(msg));
       return true;
@@ -130,6 +150,28 @@ export class Connection {
 
   get isReady(): boolean {
     return this.ready;
+  }
+
+  /** The PC accepted protocol 2 on this connection, so it takes camera frames and gyro. */
+  get supportsTracking(): boolean {
+    return this.state.status === 'connected' && this.state.welcome.protocol >= 2;
+  }
+
+  /** True when a camera frame sent now would not queue behind an earlier one. */
+  canSendFrame(): boolean {
+    const ws = this.socket;
+    return this.supportsTracking && ws !== null && ws.readyState === OPEN && ws.bufferedAmount <= MAX_BUFFERED_BEFORE_FRAME;
+  }
+
+  /** Send an encoded binary `camera_frame`. Returns false (frame dropped) if it can't go out right now. */
+  sendFrame(frame: Uint8Array): boolean {
+    if (!this.canSendFrame()) return false;
+    try {
+      this.socket?.send(frame);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // ---- internals -----------------------------------------------------------------------------
@@ -152,9 +194,10 @@ export class Connection {
       return;
     }
     this.socket = ws;
+    ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
-      const hello: HelloMessage = { type: 'hello', protocol: PROTOCOL_VERSION, ...this.opts.hello };
+      const hello: HelloMessage = { type: 'hello', protocol: this.helloProtocol, ...this.opts.hello };
       this.send(hello);
     };
     ws.onmessage = (ev) => {
@@ -183,7 +226,7 @@ export class Connection {
     if (!msg) return;
     switch (msg.type) {
       case 'welcome':
-        if (msg.protocol !== PROTOCOL_VERSION) {
+        if (!Number.isInteger(msg.protocol) || msg.protocol < MIN_PROTOCOL_VERSION || msg.protocol > PROTOCOL_VERSION) {
           this.lastError = { code: 'unsupported_protocol', detail: `server protocol ${msg.protocol}` };
           this.abandonSocket();
           return;
@@ -204,8 +247,17 @@ export class Connection {
         return;
       }
       case 'error':
+        if (msg.code === 'unsupported_protocol' && !this.ready && this.helloProtocol > MIN_PROTOCOL_VERSION) {
+          // An older PC (protocol 1, no camera pointing): say hello again with the oldest version we speak.
+          this.helloProtocol = MIN_PROTOCOL_VERSION;
+          this.retryOlderProtocol = true;
+          return;
+        }
         // The server closes right after sending an error; remember why.
         this.lastError = { code: msg.code, detail: msg.message };
+        return;
+      case 'tracking':
+        if (this.ready) this.events.onTracking?.(msg);
         return;
     }
   }
@@ -264,6 +316,11 @@ export class Connection {
   }
 
   private handleClosed(): void {
+    if (this.retryOlderProtocol) {
+      this.retryOlderProtocol = false;
+      this.open();
+      return;
+    }
     const reason = this.lastError ?? { code: 'network' };
     if (isTerminal(reason)) {
       this.setState({ status: 'failed', reason });

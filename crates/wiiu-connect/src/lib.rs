@@ -5,6 +5,8 @@
 
 pub mod http;
 pub mod session;
+pub mod tls;
+pub mod tracking;
 pub mod ws;
 
 use anyhow::Context;
@@ -26,10 +28,22 @@ pub struct ServerConfig {
     pub allowed_origins: Vec<String>,
     /// Host name or IP phones use to reach this PC; detected when `None`.
     pub public_host: Option<String>,
+    /// Optional HTTPS listener (self-signed). Phones need it for camera and motion sensors.
+    pub https: Option<HttpsConfig>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HttpsConfig {
+    pub bind: SocketAddr,
+    /// Where the certificate and key are stored.
+    pub data_dir: PathBuf,
 }
 
 pub struct Running {
     pub http_addr: SocketAddr,
+    pub https_addr: Option<SocketAddr>,
+    /// Certificate file, when HTTPS is enabled.
+    pub cert_path: Option<PathBuf>,
     pub dsu_addr: SocketAddr,
     pub token: String,
     pub phone_url: String,
@@ -52,14 +66,19 @@ pub fn lan_ip() -> Option<IpAddr> {
     (!ip.is_unspecified() && !ip.is_loopback()).then_some(ip)
 }
 
+/// A fixed token must fit the protocol's `hello.token` limit and survive the pairing URL unencoded.
+fn valid_fixed_token(t: &str) -> bool {
+    (16..=128).contains(&t.len()) && t.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 /// Binds all sockets and spawns the server tasks. Returns once everything is listening.
 pub async fn start(
     config: ServerConfig,
     shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> anyhow::Result<(Running, tokio::task::JoinHandle<()>)> {
     let token = match config.token {
-        Some(t) if t.len() >= 16 => t,
-        Some(_) => anyhow::bail!("--token must be at least 16 characters"),
+        Some(t) if valid_fixed_token(&t) => t,
+        Some(_) => anyhow::bail!("--token must be 16-128 characters of A-Z, a-z, 0-9, '-' or '_'"),
         None => generate_token()?,
     };
     let table = SlotTable::new();
@@ -82,8 +101,28 @@ pub async fn start(
             lan_ip().map(|ip| ip.to_string()).unwrap_or_else(|| "127.0.0.1".into())
         }
     });
+    let https = match &config.https {
+        Some(h) => {
+            tls::install_crypto_provider();
+            let hosts = vec!["localhost".to_string(), "127.0.0.1".to_string(), host.clone()];
+            let certs = tls::load_or_create(&h.data_dir, &hosts)?;
+            let rustls_config = axum_server::tls_rustls::RustlsConfig::from_pem_file(&certs.cert, &certs.key)
+                .await
+                .context("loading HTTPS certificate")?;
+            let listener =
+                std::net::TcpListener::bind(h.bind).with_context(|| format!("cannot listen on {} (HTTPS)", h.bind))?;
+            listener.set_nonblocking(true)?;
+            let addr = listener.local_addr()?;
+            Some((listener, rustls_config, addr, certs.cert))
+        }
+        None => None,
+    };
+    let phone_base_url = match &https {
+        Some((_, _, addr, _)) => format!("https://{host}:{}", addr.port()),
+        None => format!("http://{host}:{}", http_addr.port()),
+    };
     let http_config = http::HttpConfig {
-        phone_base_url: format!("http://{host}:{}", http_addr.port()),
+        phone_base_url,
         allowed_origins: config.allowed_origins.clone(),
         web_dir: config.web_dir.clone(),
     };
@@ -92,6 +131,7 @@ pub async fn start(
         sessions: sessions.clone(),
         config: Arc::new(http_config),
     });
+    let https_app = app.clone();
 
     let wait = |mut rx: tokio::sync::watch::Receiver<bool>| async move {
         let _ = rx.wait_for(|stop| *stop).await;
@@ -112,20 +152,49 @@ pub async fn start(
             }
         }
     });
+    let http_stop = wait(shutdown.clone());
     let http_task = tokio::spawn(async move {
         let serve = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-            .with_graceful_shutdown(wait(shutdown));
+            .with_graceful_shutdown(http_stop);
         if let Err(e) = serve.await {
             tracing::error!("http server error: {e}");
         }
     });
+    let (https_addr, cert_path, https_task) = match https {
+        Some((listener, rustls_config, addr, cert)) => {
+            let handle = axum_server::Handle::new();
+            let shutdown_handle = handle.clone();
+            let stop = wait(shutdown.clone());
+            tokio::spawn(async move {
+                stop.await;
+                shutdown_handle.graceful_shutdown(Some(Duration::from_secs(1)));
+            });
+            let server = axum_server::from_tcp_rustls(listener, rustls_config)?.handle(handle);
+            let app = https_app;
+            let task = tokio::spawn(async move {
+                if let Err(e) = server
+                    .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+                    .await
+                {
+                    tracing::error!("https server error: {e}");
+                }
+            });
+            (Some(addr), Some(cert), Some(task))
+        }
+        None => (None, None, None),
+    };
     let all = tokio::spawn(async move {
         let _ = tokio::join!(dsu_task, watchdog_task, http_task);
+        if let Some(t) = https_task {
+            let _ = t.await;
+        }
     });
 
     Ok((
         Running {
             http_addr,
+            https_addr,
+            cert_path,
             dsu_addr,
             token,
             phone_url,
@@ -134,4 +203,19 @@ pub async fn start(
         },
         all,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::valid_fixed_token;
+
+    #[test]
+    fn fixed_tokens_must_be_url_safe_and_fit_the_protocol() {
+        assert!(valid_fixed_token("test-pairing-token-not-secret"));
+        assert!(valid_fixed_token(&"a".repeat(128)));
+        assert!(!valid_fixed_token("short"));
+        assert!(!valid_fixed_token(&"a".repeat(129)));
+        assert!(!valid_fixed_token("has space in the token"));
+        assert!(!valid_fixed_token("amp&ersand-token-value"));
+    }
 }

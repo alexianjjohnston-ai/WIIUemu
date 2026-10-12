@@ -3,6 +3,7 @@
 import { InputEngine } from '../input/engine';
 import { Connection, type ConnectionOptions } from '../net/connection';
 import { WIIMOTE_BUTTONS, type WiimoteButton } from '../protocol/types';
+import { CameraPointer, type CameraPointerDeps } from '../tracking/CameraPointer';
 
 export interface SessionConfig {
   url: string;
@@ -11,11 +12,14 @@ export interface SessionConfig {
   name?: string;
   /** For tests. */
   createSocket?: ConnectionOptions['createSocket'];
+  createCamera?: CameraPointerDeps['createCamera'];
 }
 
 export class ControllerSession {
   readonly engine = new InputEngine<WiimoteButton>(WIIMOTE_BUTTONS);
   readonly connection: Connection;
+  /** Protocol 2 camera pointing; off until the user turns it on. */
+  readonly camera: CameraPointer;
   private unbindPage: (() => void) | null = null;
 
   constructor(config: SessionConfig) {
@@ -37,7 +41,17 @@ export class ControllerSession {
         // Socket already gone: stop sending, then drop everything that was held.
         this.engine.detach();
         this.engine.releaseAll();
+        this.camera.onConnectionDown();
       },
+      onTracking: (msg) => {
+        this.camera.onTracking(msg);
+      },
+    });
+    const connection = this.connection;
+    this.camera = new CameraPointer({
+      sink: connection,
+      sendGyro: (msg) => connection.send(msg),
+      ...(config.createCamera ? { createCamera: config.createCamera } : {}),
     });
   }
 
@@ -50,6 +64,7 @@ export class ControllerSession {
   dispose(): void {
     this.unbindPage?.();
     this.unbindPage = null;
+    this.camera.disable();
     this.engine.releaseAllAndFlush();
     this.engine.detach();
     this.connection.stop();
@@ -64,8 +79,13 @@ export class ControllerSession {
 function bindPageLifecycle(session: ControllerSession): () => void {
   if (typeof window === 'undefined') return () => undefined;
   const onVisibility = () => {
-    if (document.visibilityState === 'hidden') session.releaseForBackground();
-    else session.connection.retryNow();
+    if (document.visibilityState === 'hidden') {
+      session.releaseForBackground();
+      session.camera.suspend();
+    } else {
+      session.connection.retryNow();
+      void session.camera.resume();
+    }
   };
   const onBackground = () => {
     session.releaseForBackground();

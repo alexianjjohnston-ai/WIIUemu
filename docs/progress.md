@@ -2,6 +2,38 @@
 
 Hand-off notes for the next session. Newest first.
 
+## 2026-10-12: Milestone 2 (software side): camera pointing
+
+Branch `feat/apriltag-tracking` (PR #3), stacked on PR #1.
+
+### Done
+- `wiiu-tracking`: homography, aim point, calibration, gyro fusion, tracker with latency replay, tag36h11
+  rendering. `wiiu-apriltag-sys`: vendored AprilTag C behind a primitive-only shim (builds on Linux, Windows MSVC
+  and macOS in CI).
+- Server: protocol v2 (`camera_frame`, `gyro`, `tracking`), a tracking worker per Wii Remote slot, the HTTPS
+  listener (self-signed, port 8738), the `/tracking` border page, and `/api/tracking/layout`.
+- Phone: camera button, rear-camera JPEG streaming, gyro batches, tracking feedback line, camera released while
+  hidden. Rust and TS camera-frame encoders are pinned to the same golden bytes.
+- Simulated end-to-end check: a fake Chromium camera played the `/tracking` border into the real server, and all
+  10 tags were found. Pointer (0.5, 0.5) → DSU touch (960, 471). See `docs/tracking.md`.
+
+### Tests
+- Phone: 107 unit tests and 77 Playwright e2e tests (including 4 camera tests with Chromium's fake camera).
+
+### First hardware result (2026-10-12)
+- The repository owner ran the `test/all-features` Windows package with an iPhone. Server start, QR pairing over
+  HTTPS and Wii Remote connect (LED 1) work. See `docs/compatibility.md`.
+
+### Unverified
+- Everything else on real phones: camera mode chosen, fps, latency, iOS motion permission, gyro axis signs, battery.
+- Inside Cemu: the camera-driven pointer in a real game.
+
+### Next
+1. Real-phone run: open the https QR link, accept the certificate, turn on the camera, aim at `/tracking` on the
+   TV. Record fps, aim error and latency in `docs/tracking.md`.
+2. Calibration UI (aim at the centre ring → `calibrate_aim_point`).
+3. Timing metrics on `/api/status` (ADR-0001 action item 3).
+
 ## 2026-10-12: Milestone 0 + Milestone 1 (software side)
 
 ### Done

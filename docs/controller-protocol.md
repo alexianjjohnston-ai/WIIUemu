@@ -65,7 +65,7 @@ the next one corrects the state, so a button can never stay stuck because one "r
 |------------|------|-------|
 | `seq`      | int  | 0 ≤ seq < 2^53, strictly increasing per connection. The server drops snapshots whose `seq` is not greater than the last one it applied. |
 | `buttons`  | string[] | held buttons, at most 16 entries, no duplicates; names must be valid for the role (below) |
-| `pointer`  | object or `null` | normalised screen position: `x`,`y` ∈ [0,1], with (0,0) at the top-left of the game image. `null` means the pointer is off-screen or tracking is lost. |
+| `pointer`  | object or `null` | optional (missing = `null`; the phone app always sends it). Normalised screen position: `x`,`y` ∈ [0,1], with (0,0) at the top-left of the game image. `null` means the pointer is off-screen or tracking is lost. |
 | `stick`    | object | optional. Nunchuk stick (Wii Remote) or left stick (GamePad), `x`,`y` ∈ [-1,1], +y = up |
 | `rstick`   | object | optional, GamePad only. Right stick, same rules as `stick` |
 | `motion`   | object or `null` | optional. `accel` in g, `gyro` in deg/s, both as `[x,y,z]` in the **DSU axis convention** (see below). `ts` is a monotonic timestamp in microseconds. |
@@ -107,6 +107,8 @@ role are taken), `timeout` (no `hello` within 5 s), `replaced` (the same `device
   bindings never break while the phone reconnects.
 - **Staleness watchdog.** If no `input` arrives for 1000 ms, the server neutralises the slot, just as it does on
   disconnect. Phones send a snapshot at least every 100 ms, even when nothing changed.
+- **Idle timeout.** A connection that sends nothing at all for 10 s is closed with `timeout`, so a phone that
+  vanished without closing its socket (Wi-Fi drop, sleep) frees its slot.
 - **Reconnect.** A phone that reconnects with the same `deviceId` gets its previous slot back if the slot is
   still free. If the old socket is still open, it is closed with `replaced`.
 - **Isolation.** Each slot has its own state. A message on one socket can only change the slot that socket is
@@ -121,6 +123,70 @@ role are taken), `timeout` (no `hello` within 5 s), `replaced` (the same `device
 
 Cemu's DSU client supports up to 4 slots per server (`DSUControllerProvider::kMaxClients = 4`), which matches
 the four phones exactly.
+
+## Protocol version 2: camera tracking (Wii Remote role)
+
+> Status: implemented on the server (`crates/wiiu-connect/src/tracking.rs`) and in the phone app
+> (`apps/phone/src/tracking/`). Tested end to end with synthetic JPEG frames, and with Chromium's fake camera
+> playing the `/tracking` border into the real server. **Not yet tested on real phones.** See ADR-0001.
+>
+> The phone always sends `"protocol": 2` and accepts a `welcome` with 1 or 2. On version 1 it hides camera
+> pointing.
+
+Version 2 is version 1 plus two messages, so a phone can let the PC compute its pointer from the camera. A phone
+sends `"protocol": 2` in `hello`. The server accepts both 1 and 2 and replies with the version it accepted in
+`welcome`. Binary frames are still rejected on version-1 connections.
+
+### `camera_frame` (binary WebSocket frame, client → server)
+
+Little-endian header followed by the image payload:
+
+| offset | type | field | rules |
+|--------|------|-------|-------|
+| 0 | u8 | kind | `1` = camera frame |
+| 1 | u8 | format | `1` = JPEG (baseline; colour or grayscale) |
+| 2 | u16 | width | 160–1280, must match the decoded image |
+| 4 | u16 | height | 120–960, must match the decoded image |
+| 6 | u16 | reserved | `0` |
+| 8 | u32 | seq | strictly increasing per connection |
+| 12 | u64 | capture_us | phone monotonic clock, µs, when the frame was captured |
+| 20 | … | payload | at most 65 536 bytes |
+
+Rules: frames over 65 556 bytes in total are rejected (the connection closes). The server reads the JPEG header
+on arrival, and a size that differs from the frame header closes the connection. The server processes at most one
+frame per slot at a time and **drops** frames that arrive while one is in flight, so a slow PC never builds a
+queue. At most 60 frames per second per slot are accepted; extra frames are dropped silently. Only the
+`wiimote` role may send frames.
+
+### `gyro` (text, client → server)
+
+```json
+{ "type": "gyro", "samples": [[1234567, 0.01, -0.20, 0.03], [1239567, 0.02, -0.18, 0.02]] }
+```
+
+Each sample is `[t_us, rate_x, rate_y, rate_z]`. `t_us` uses the same clock as `capture_us`. The rates are
+angular velocity in **rad/s** in the W3C device frame (x right, y up toward the top of the phone, z out of the
+screen), as `DeviceMotionEvent.rotationRate` reports in deg/s (beta = x, gamma = y, alpha = z), converted to
+rad/s. 1–64 samples per message, at most 1000 samples per second. Timestamps strictly increase across
+messages. Values must be finite and below 35 rad/s.
+
+The server converts these rates to the rear-camera frame as `(x, −y, −z)` (portrait, unrotated image) and feeds
+them to the pointer fusion (`wiiu_tracking::PointerFusion`).
+
+### Pointer ownership
+
+While a slot is receiving camera frames, the **server-computed pointer replaces** the `pointer` field of that
+phone's `input` snapshots. Before the first tag fix, and while the phone points beside the screen, that pointer
+is hidden. If no frame has arrived for 2 s, the phone's own `pointer` field applies again (for example, a
+manual or touch fallback).
+
+### `tracking` (text, server → client, about 10 Hz while frames arrive)
+
+```json
+{ "type": "tracking", "state": "tracking", "pointer": { "x": 0.41, "y": 0.62 }, "tags": 7, "fixes_per_s": 28.5 }
+```
+
+`state` is `tracking`, `gyro_only` or `lost`. Phones use it for on-screen feedback ("point at the TV").
 
 ## DSU layer (PC → Cemu)
 

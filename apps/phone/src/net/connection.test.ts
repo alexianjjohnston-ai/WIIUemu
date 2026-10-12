@@ -13,11 +13,13 @@ class FakeSocket implements SocketLike {
   onclose: ((ev: CloseEvent) => void) | null = null;
   onerror: ((ev: Event) => void) | null = null;
   sent: string[] = [];
+  binary: Uint8Array[] = [];
   closed: { code: number | undefined } | null = null;
   constructor(readonly url: string) {}
 
-  send(data: string) {
-    this.sent.push(data);
+  send(data: string | Uint8Array) {
+    if (typeof data === 'string') this.sent.push(data);
+    else this.binary.push(data);
   }
   close(code?: number) {
     this.closed = { code };
@@ -40,11 +42,11 @@ class FakeSocket implements SocketLike {
   }
 }
 
-const WELCOME = { type: 'welcome', protocol: 1, role: 'wiimote', slot: 1, player: 1 };
+const WELCOME = { type: 'welcome', protocol: 2, role: 'wiimote', slot: 1, player: 1 };
 
 function setup() {
   const sockets: FakeSocket[] = [];
-  const events = { onReady: vi.fn(), onDown: vi.fn() };
+  const events = { onReady: vi.fn(), onDown: vi.fn(), onTracking: vi.fn() };
   const conn = new Connection(
     {
       url: 'ws://pc/ws',
@@ -82,7 +84,7 @@ describe('Connection', () => {
     last().serverOpen();
     expect(last().messages()[0]).toEqual({
       type: 'hello',
-      protocol: 1,
+      protocol: 2,
       token: 'tok123',
       role: 'wiimote',
       deviceId: 'device-0001',
@@ -133,12 +135,16 @@ describe('Connection', () => {
     (code) => {
       const { conn, sockets, last } = setup();
       conn.start();
-      last().serverOpen();
-      last().serverSend({ type: 'error', code, message: 'nope' });
-      last().serverClose();
+      // unsupported_protocol first retries once with protocol 1 (see below); a second rejection is final.
+      const attempts = code === 'unsupported_protocol' ? 2 : 1;
+      for (let i = 0; i < attempts; i++) {
+        last().serverOpen();
+        last().serverSend({ type: 'error', code, message: 'nope' });
+        last().serverClose();
+      }
       expect(conn.getState()).toEqual({ status: 'failed', reason: { code, detail: 'nope' } });
       vi.advanceTimersByTime(60_000);
-      expect(sockets).toHaveLength(1);
+      expect(sockets).toHaveLength(attempts);
     },
   );
 
@@ -216,11 +222,58 @@ describe('Connection', () => {
     conn.stop();
   });
 
+  it('protocol 2: sends frames only when the socket is drained, and forwards tracking feedback', () => {
+    const { conn, last, events } = setup();
+    conn.start();
+    last().serverOpen();
+    const tracking = { type: 'tracking', state: 'tracking', pointer: { x: 0.5, y: 0.5 }, tags: 7, fixes_per_s: 30 };
+    last().serverSend(tracking);
+    expect(events.onTracking).not.toHaveBeenCalled(); // not before welcome
+    last().serverSend(WELCOME);
+    expect(conn.sendFrame(new Uint8Array(30))).toBe(true);
+    expect(last().binary).toHaveLength(1);
+    last().bufferedAmount = 40_000;
+    expect(conn.sendFrame(new Uint8Array(30))).toBe(false);
+    expect(conn.send({ type: 'input', seq: 1, buttons: ['A'], pointer: null })).toBe(true); // input still goes
+    expect(conn.send({ type: 'gyro', samples: [[1, 0, 0, 0]] })).toBe(true);
+    last().serverSend(tracking);
+    expect(events.onTracking).toHaveBeenCalledWith(tracking);
+  });
+
+  it('retries with protocol 1 when an older PC rejects the protocol 2 hello', () => {
+    const { conn, sockets, last } = setup();
+    conn.start();
+    last().serverOpen();
+    expect(last().messages()[0]).toMatchObject({ type: 'hello', protocol: 2 });
+    last().serverSend({ type: 'error', code: 'unsupported_protocol', message: 'protocol must be 1' });
+    last().serverClose();
+    expect(sockets).toHaveLength(2); // immediately, no backoff
+    last().serverOpen();
+    const hello = last().messages()[0];
+    expect(hello).toMatchObject({ type: 'hello', protocol: 1 });
+    expect(validateClientFrame(JSON.stringify(hello), 'wiimote')).toEqual([]);
+    last().serverSend({ ...WELCOME, protocol: 1 });
+    expect(conn.getState()).toMatchObject({ status: 'connected' });
+    expect(conn.supportsTracking).toBe(false);
+  });
+
+  it('accepts a protocol 1 server but keeps camera tracking off', () => {
+    const { conn, last } = setup();
+    conn.start();
+    last().serverOpen();
+    last().serverSend({ ...WELCOME, protocol: 1 });
+    expect(conn.getState()).toMatchObject({ status: 'connected' });
+    expect(conn.supportsTracking).toBe(false);
+    expect(conn.canSendFrame()).toBe(false);
+    expect(conn.sendFrame(new Uint8Array(30))).toBe(false);
+    expect(conn.send({ type: 'gyro', samples: [[1, 0, 0, 0]] })).toBe(false);
+  });
+
   it('closes when the server announces another protocol version', () => {
     const { conn, last } = setup();
     conn.start();
     last().serverOpen();
-    last().serverSend({ ...WELCOME, protocol: 2 });
+    last().serverSend({ ...WELCOME, protocol: 3 });
     expect(conn.getState()).toMatchObject({ status: 'failed', reason: { code: 'unsupported_protocol' } });
   });
 });

@@ -8,7 +8,7 @@ test.describe('pairing and connection', () => {
 
     await expect.poll(() => server.hellos.length).toBe(1);
     const hello = server.hellos[0];
-    expect(hello).toMatchObject({ type: 'hello', protocol: 1, token: 'qr-token-abc', role: 'wiimote' });
+    expect(hello).toMatchObject({ type: 'hello', protocol: 2, token: 'qr-token-abc', role: 'wiimote' });
     expect(hello?.deviceId).toMatch(DEVICE_ID_RE);
   });
 

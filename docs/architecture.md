@@ -47,12 +47,20 @@ P1–P3. Slots always report "connected" with neutral input, so Cemu's bindings 
 - `/ws` rejects cross-origin browser upgrades unless the origin is explicitly allowed (`--allow-origin`).
 - Inbound frames are text only, at most 4 KiB, rate-limited to 500/s, and strictly validated (no clamping).
 
+## HTTPS for phones
+
+Browsers expose the camera, and on iOS the motion sensors, only to secure contexts. `wiiu-connect` therefore
+also listens on `https://<lan-ip>:8738` with a self-signed certificate (`src/tls.rs`). It creates the
+certificate once in the data directory (`%APPDATA%\WiiUConnect` on Windows), reuses it while the LAN address
+stays the same, and stores the private key owner-only. The QR code points at the HTTPS URL; each phone accepts
+the browser warning once. Plain HTTP on 8737 stays available for PC-only pages, and `--no-https` disables the
+TLS listener. Whether every phone browser grants camera and sensor access after a certificate warning is
+**not yet verified on devices**.
+
 ## Planned (not built yet)
 
 - **Tauri desktop shell** (Milestone 6): a pairing/diagnostics window that wraps the same `wiiu-connect` library.
   It is deferred because the server must work first and Tauri needs Windows WebView2 tooling; the current CI
   container has none.
-- **HTTPS for phones:** browsers expose camera and motion sensors only in secure contexts, so Milestone 2 needs
-  a local certificate or a different transport.
 - **GamePad streaming** (Milestone 5): capture Cemu's GamePad window, hardware H.264 encode, WebRTC to phone 1.
 - **AprilTag tracking** (Milestone 2): see `docs/tracking.md`.

@@ -13,6 +13,9 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${PORT}`,
     trace: 'retain-on-failure',
+    // Camera pointing: Chromium's built-in fake camera, permission pre-granted (localhost is a secure context).
+    permissions: ['camera'],
+    launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] },
   },
   projects: [
     { name: 'pixel-7', use: { ...devices['Pixel 7'], browserName: 'chromium' } },
