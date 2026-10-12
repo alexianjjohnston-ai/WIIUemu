@@ -2,7 +2,9 @@ import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'r
 import { useSettings } from '../../hooks/useSettings';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { ControllerSession, type SessionConfig } from '../../session/ControllerSession';
+import { cameraPointingSupported } from '../../tracking/camera';
 import { BZone } from './BZone';
+import { CameraPointerButton, CameraPointerStatus } from './CameraPointerControls';
 import { ConnectionNotice } from './ConnectionNotice';
 import { RemoteBody, type LinkStatus } from './RemoteBody';
 import { SettingsSheet } from './SettingsSheet';
@@ -19,6 +21,9 @@ export function WiimoteScreen({ config, onLeave }: Props) {
   const state = useSyncExternalStore(session.connection.subscribe, session.connection.getState);
   const [settings, updateSettings] = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const camera = useSyncExternalStore(session.camera.subscribe, session.camera.getState);
+  const [cameraSupported] = useState(cameraPointingSupported);
+  const [explainCamera, setExplainCamera] = useState(false);
 
   useEffect(() => {
     session.start();
@@ -33,6 +38,8 @@ export function WiimoteScreen({ config, onLeave }: Props) {
     state.status === 'connected' ? 'connected' : state.status === 'connecting' ? 'connecting' : 'down';
   const player = state.status === 'connected' ? state.welcome.player : null;
   const side = settings.leftHanded ? 'left' : 'right';
+  // Protocol 1 servers can't take camera frames; hide the toggle there.
+  const serverTracks = state.status !== 'connected' || state.welcome.protocol >= 2;
 
   return (
     <div
@@ -51,6 +58,19 @@ export function WiimoteScreen({ config, onLeave }: Props) {
           session.releaseForBackground();
           setSettingsOpen(true);
         }}
+        actions={
+          serverTracks && (
+            <CameraPointerButton
+              state={camera}
+              supported={cameraSupported}
+              onToggle={() => {
+                if (!cameraSupported) setExplainCamera((v) => !v);
+                else if (camera.status === 'on' || camera.status === 'starting') session.camera.disable();
+                else void session.camera.enable();
+              }}
+            />
+          )
+        }
       />
       <div className="notice-slot">
         <ConnectionNotice
@@ -61,6 +81,16 @@ export function WiimoteScreen({ config, onLeave }: Props) {
           }}
           onLeave={onLeave}
         />
+        {state.status === 'connected' && serverTracks && (
+          <CameraPointerStatus
+            state={camera}
+            supported={cameraSupported}
+            explainUnsupported={explainCamera}
+            onDismissError={() => {
+              session.camera.disable();
+            }}
+          />
+        )}
       </div>
       <main className="wm-main">
         <div className="wm-body-col">

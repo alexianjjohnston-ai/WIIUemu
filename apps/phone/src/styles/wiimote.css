@@ -584,3 +584,70 @@
     box-shadow: 0 0 5px var(--led-on);
   }
 }
+
+/* ---- camera pointing ------------------------------------------------------------------------ */
+
+.topbar-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+.camera-button {
+  position: relative;
+}
+
+.camera-button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.camera-button .camera-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+}
+
+.camera-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: transparent;
+}
+
+[data-state='tracking'] .camera-dot,
+.camera-line[data-kind='tracking'] .camera-dot {
+  background: var(--ok);
+}
+
+[data-state='gyro_only'] .camera-dot,
+[data-state='waiting'] .camera-dot,
+.camera-line[data-kind='gyro_only'] .camera-dot,
+.camera-line[data-kind='waiting'] .camera-dot {
+  background: var(--warn);
+}
+
+[data-state='lost'] .camera-dot,
+[data-state='error'] .camera-dot,
+.camera-line[data-kind='lost'] .camera-dot {
+  background: var(--danger);
+}
+
+.camera-line {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.92);
+  box-shadow: 0 4px 14px rgb(20 40 60 / 0.12);
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
