@@ -173,26 +173,72 @@ pub fn write_profile(dir: &Path, profile: &WiimoteProfile, force: bool) -> Resul
     Ok(path)
 }
 
-/// Best guess at Cemu's `controllerProfiles` directory. Cemu 2.x keeps config next to the executable in
-/// portable mode, otherwise in the user config dir. Returns candidates in priority order.
-pub fn profile_dir_candidates(cemu_exe_dir: Option<&Path>) -> Vec<PathBuf> {
+/// Platform whose Cemu folder layout to assume.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Platform {
+    Windows,
+    MacOs,
+    Linux,
+}
+
+impl Platform {
+    pub const fn current() -> Self {
+        if cfg!(target_os = "windows") {
+            Platform::Windows
+        } else if cfg!(target_os = "macos") {
+            Platform::MacOs
+        } else {
+            Platform::Linux
+        }
+    }
+}
+
+/// Likely locations of Cemu's `controllerProfiles` folder on this machine, in priority order.
+pub fn profile_dir_candidates(cemu_dir: Option<&Path>) -> Vec<PathBuf> {
+    profile_dir_candidates_for(Platform::current(), cemu_dir, &|k| std::env::var_os(k))
+}
+
+/// Mirrors `CemuApp::DeterminePaths` (src/gui/wxgui/CemuApp.cpp, Cemu commit `aa20e2f`): a `portable` folder
+/// next to the executable (on macOS: next to `Cemu.app`) wins, otherwise the per-user config folder:
+/// Windows `%APPDATA%\Cemu`, macOS `~/Library/Application Support/Cemu`, Linux `$XDG_CONFIG_HOME/Cemu`
+/// (default `~/.config/Cemu`).
+pub fn profile_dir_candidates_for(
+    platform: Platform,
+    cemu_dir: Option<&Path>,
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Vec<PathBuf> {
+    const PROFILES: &str = "controllerProfiles";
     let mut out = Vec::new();
-    if let Some(dir) = cemu_exe_dir {
-        out.push(dir.join("portable").join("controllerProfiles"));
-        out.push(dir.join("controllerProfiles"));
+    if let Some(dir) = cemu_dir {
+        // Accept either the folder containing Cemu or, on macOS, the Cemu.app bundle itself.
+        let base = if dir.extension().is_some_and(|e| e == "app") {
+            dir.parent().unwrap_or(dir)
+        } else {
+            dir
+        };
+        out.push(base.join("portable").join(PROFILES));
+        if platform == Platform::Windows {
+            // Cemu < 2.0-89 on Windows kept its config next to the exe.
+            out.push(base.join(PROFILES));
+        }
     }
-    if let Some(appdata) = std::env::var_os("APPDATA") {
-        out.push(PathBuf::from(appdata).join("Cemu").join("controllerProfiles"));
-    }
-    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
-        out.push(PathBuf::from(xdg).join("Cemu").join("controllerProfiles"));
-    } else if let Some(home) = std::env::var_os("HOME") {
-        out.push(
-            PathBuf::from(home)
-                .join(".config")
-                .join("Cemu")
-                .join("controllerProfiles"),
-        );
+    let home = env("HOME").map(PathBuf::from);
+    match platform {
+        Platform::Windows => {
+            if let Some(appdata) = env("APPDATA") {
+                out.push(PathBuf::from(appdata).join("Cemu").join(PROFILES));
+            }
+        }
+        Platform::MacOs => {
+            if let Some(home) = home {
+                out.push(home.join("Library/Application Support/Cemu").join(PROFILES));
+            }
+        }
+        Platform::Linux => match (env("XDG_CONFIG_HOME"), home) {
+            (Some(xdg), _) => out.push(PathBuf::from(xdg).join("Cemu").join(PROFILES)),
+            (None, Some(home)) => out.push(home.join(".config/Cemu").join(PROFILES)),
+            (None, None) => {}
+        },
     }
     out
 }
@@ -296,6 +342,50 @@ mod tests {
             );
         }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn env<'a>(vars: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<std::ffi::OsString> + 'a {
+        move |k| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| v.into())
+    }
+
+    #[test]
+    fn profile_dirs_per_platform() {
+        let mac = profile_dir_candidates_for(Platform::MacOs, None, &env(&[("HOME", "/Users/ana")]));
+        assert_eq!(
+            mac,
+            vec![PathBuf::from(
+                "/Users/ana/Library/Application Support/Cemu/controllerProfiles"
+            )]
+        );
+        let mac_app = profile_dir_candidates_for(
+            Platform::MacOs,
+            Some(Path::new("/Applications/Cemu.app")),
+            &env(&[("HOME", "/Users/ana")]),
+        );
+        assert_eq!(mac_app[0], PathBuf::from("/Applications/portable/controllerProfiles"));
+
+        let win = profile_dir_candidates_for(
+            Platform::Windows,
+            Some(Path::new("C:/Cemu")),
+            &env(&[("APPDATA", "C:/Users/ana/AppData/Roaming")]),
+        );
+        assert_eq!(
+            win,
+            vec![
+                PathBuf::from("C:/Cemu/portable/controllerProfiles"),
+                PathBuf::from("C:/Cemu/controllerProfiles"),
+                PathBuf::from("C:/Users/ana/AppData/Roaming/Cemu/controllerProfiles"),
+            ]
+        );
+
+        let linux = profile_dir_candidates_for(Platform::Linux, None, &env(&[("HOME", "/home/ana")]));
+        assert_eq!(linux, vec![PathBuf::from("/home/ana/.config/Cemu/controllerProfiles")]);
+        let xdg = profile_dir_candidates_for(
+            Platform::Linux,
+            None,
+            &env(&[("HOME", "/home/ana"), ("XDG_CONFIG_HOME", "/cfg")]),
+        );
+        assert_eq!(xdg, vec![PathBuf::from("/cfg/Cemu/controllerProfiles")]);
     }
 
     #[test]
