@@ -39,6 +39,25 @@ struct SlotSession {
     stale: bool,
     input: ControllerInput,
     motion_clock: MotionClock,
+    /// Last motion sample written to the pad, reused when only the pointer changes.
+    last_motion: Option<wiiu_dsu::Motion>,
+    /// Server-computed (camera tracking) pointer and when it was set; overrides `input.pointer` while fresh.
+    tracked: Option<(Option<(f32, f32)>, Instant)>,
+}
+
+/// How long a camera-tracked pointer overrides the phone's own `pointer` field after the last update.
+pub const TRACKED_POINTER_TTL: Duration = Duration::from_secs(2);
+
+impl SlotSession {
+    fn effective_input(&self, now: Instant) -> ControllerInput {
+        let mut input = self.input;
+        if let Some((pointer, at)) = self.tracked {
+            if now.saturating_duration_since(at) < TRACKED_POINTER_TTL {
+                input.pointer = pointer;
+            }
+        }
+        input
+    }
 }
 
 #[derive(Debug)]
@@ -102,6 +121,8 @@ impl SessionManager {
                         stale: false,
                         input: ControllerInput::default(),
                         motion_clock: MotionClock::default(),
+                        last_motion: None,
+                        tracked: None,
                     })
                     .collect(),
             }),
@@ -163,6 +184,8 @@ impl SessionManager {
         sess.stale = false;
         sess.input = ControllerInput::default();
         sess.motion_clock.reset_session();
+        sess.last_motion = None;
+        sess.tracked = None;
         drop(inner);
         self.table.set_pad(slot, PadData::neutral());
 
@@ -196,10 +219,33 @@ impl SessionManager {
         sess.last_input = now;
         sess.stale = false;
         sess.input = input;
-        let motion = input.motion.map(|m| sess.motion_clock.map(&m, server_us));
+        if let Some(m) = input.motion {
+            sess.last_motion = Some(sess.motion_clock.map(&m, server_us));
+        }
+        let effective = sess.effective_input(now);
+        let motion = sess.last_motion;
         drop(inner);
-        self.table.set_pad(slot, to_pad(role, &input, motion));
+        self.table.set_pad(slot, to_pad(role, &effective, motion));
         Ok(())
+    }
+
+    /// Sets the camera-tracked pointer for `slot` (if `conn_id` owns it) and republishes the pad.
+    /// `None` means "tracked, but not pointing at the screen".
+    pub fn set_tracked_pointer(&self, conn_id: u64, slot: usize, pointer: Option<(f32, f32)>, now: Instant) {
+        let (role, _) = slot_layout(slot);
+        let mut inner = self.lock();
+        let Some(sess) = inner.slots.get_mut(slot) else {
+            return;
+        };
+        if sess.owner.as_ref().map(|o| o.conn_id) != Some(conn_id) || sess.stale {
+            return;
+        }
+        let pointer = pointer.filter(|(x, y)| (0.0..=1.0).contains(x) && (0.0..=1.0).contains(y));
+        sess.tracked = Some((pointer, now));
+        let effective = sess.effective_input(now);
+        let motion = sess.last_motion;
+        drop(inner);
+        self.table.set_pad(slot, to_pad(role, &effective, motion));
     }
 
     /// Releases the slot if `conn_id` still owns it: buttons up, sticks centred, pointer hidden.
@@ -214,6 +260,8 @@ impl SessionManager {
         sess.owner = None;
         sess.input = ControllerInput::default();
         sess.stale = false;
+        sess.tracked = None;
+        sess.last_motion = None;
         drop(inner);
         self.table.set_pad(slot, PadData::neutral());
     }
@@ -226,6 +274,7 @@ impl SessionManager {
             if sess.owner.is_some() && !sess.stale && now.saturating_duration_since(sess.last_input) >= STALE_AFTER {
                 sess.stale = true;
                 sess.input = ControllerInput::default();
+                sess.tracked = None;
                 neutralised.push(i);
             }
         }
@@ -252,7 +301,7 @@ impl SessionManager {
                     device_name: s.owner.as_ref().and_then(|o| o.name.clone()),
                     stale: s.stale,
                     buttons: s.input.buttons.0,
-                    pointer: s.input.pointer,
+                    pointer: s.effective_input(Instant::now()).pointer,
                 }
             })
             .collect()
@@ -440,6 +489,63 @@ mod tests {
         m.apply_input(a.conn_id, a.slot, &input(1, &["A"], None), now).unwrap();
         assert!(m.apply_input(a.conn_id, a.slot, &input(2, &["ZR"], None), now).is_err());
         assert_eq!(table.pad(1).unwrap().buttons, dsu::CROSS);
+    }
+
+    #[test]
+    fn tracked_pointer_overrides_phone_pointer_until_it_expires() {
+        let (m, table) = manager();
+        let t0 = Instant::now();
+        let a = m.authenticate(&hello(Role::Wiimote, "device-aaaa"), t0).unwrap();
+        m.apply_input(a.conn_id, a.slot, &input(1, &["B"], Some((0.1, 0.1))), t0)
+            .unwrap();
+        m.set_tracked_pointer(a.conn_id, a.slot, Some((0.5, 0.5)), t0);
+        let pad = table.pad(1).unwrap();
+        assert_eq!(pad.buttons, dsu::CIRCLE, "buttons kept");
+        assert_eq!(pad.touch[0].unwrap().x, 960, "tracked pointer wins");
+        // Phone input while tracking is fresh keeps the tracked pointer.
+        m.apply_input(
+            a.conn_id,
+            a.slot,
+            &input(2, &["A"], Some((0.1, 0.1))),
+            t0 + Duration::from_millis(500),
+        )
+        .unwrap();
+        assert_eq!(table.pad(1).unwrap().touch[0].unwrap().x, 960);
+        // Tracked "off screen" hides the pointer.
+        m.set_tracked_pointer(a.conn_id, a.slot, None, t0 + Duration::from_millis(600));
+        assert_eq!(table.pad(1).unwrap().touch[0], None);
+        // After the TTL the phone's own pointer applies again.
+        m.apply_input(
+            a.conn_id,
+            a.slot,
+            &input(3, &[], Some((0.1, 0.1))),
+            t0 + Duration::from_millis(2700),
+        )
+        .unwrap();
+        assert_eq!(table.pad(1).unwrap().touch[0].unwrap().x, 192);
+    }
+
+    #[test]
+    fn tracked_pointer_respects_ownership_and_range() {
+        let (m, table) = manager();
+        let t0 = Instant::now();
+        let a = m.authenticate(&hello(Role::Wiimote, "device-aaaa"), t0).unwrap();
+        let b = m.authenticate(&hello(Role::Wiimote, "device-bbbb"), t0).unwrap();
+        m.set_tracked_pointer(a.conn_id, b.slot, Some((0.5, 0.5)), t0);
+        assert_eq!(table.pad(b.slot).unwrap().touch[0], None, "cannot write another slot");
+        m.set_tracked_pointer(a.conn_id, a.slot, Some((1.5, 0.5)), t0);
+        assert_eq!(
+            table.pad(a.slot).unwrap().touch[0],
+            None,
+            "off-screen values hide the pointer"
+        );
+        m.disconnect(a.conn_id, a.slot);
+        m.set_tracked_pointer(a.conn_id, a.slot, Some((0.5, 0.5)), t0);
+        assert_eq!(
+            table.pad(a.slot).unwrap(),
+            PadData::neutral(),
+            "no writes after disconnect"
+        );
     }
 
     #[test]

@@ -6,6 +6,7 @@
 pub mod http;
 pub mod session;
 pub mod tls;
+pub mod tracking;
 pub mod ws;
 
 use anyhow::Context;

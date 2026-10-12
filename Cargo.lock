@@ -1680,6 +1680,7 @@ dependencies = [
  "clap",
  "futures-util",
  "getrandom 0.3.4",
+ "jpeg-encoder",
  "qrcode",
  "rcgen",
  "rustls",

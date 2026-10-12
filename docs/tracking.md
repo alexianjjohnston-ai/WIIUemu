@@ -19,6 +19,14 @@ cannot see the markers. There are two workable grips:
 
 This must be validated physically with real phones before the controller UI is finalised.
 
+## Server pipeline (protocol v2)
+
+The phone sends `camera_frame` (binary JPEG) and `gyro` messages. A worker thread per Wii Remote runs
+decode → detect → `Tracker` and writes the pointer into that player's DSU slot, overriding the phone's own
+`pointer` field for 2 s after each update. When frames arrive faster than they can be processed, only the newest
+is kept. The phone receives `tracking` feedback at about 10 Hz. An end-to-end test drives this path with a real
+JPEG over the WebSocket and checks the pointer Cemu would receive.
+
 ## Decision: detection runs on the PC
 
 See [ADR-0001](adr/0001-apriltag-detection-on-pc.md). The native AprilTag detector found all 10 rendered tags (IDs
@@ -33,6 +41,8 @@ and corner order verified) in 1.13 ms per 640×360 frame in the dev container.
 | `aim` | `estimate_aim`: image → game homography from all visible tag corners, aim = H(aim image point); rejects < 2 tags or reprojection RMS > 3 px. `calibrate_aim_point`: per-device pointing-axis calibration. | synthetic camera (below) |
 
 | `fusion` | `PointerFusion`: between camera fixes, rotates the pointing ray by the gyro-integrated rotation and maps it through the last homography; a fix resets the drift. Tracking → GyroOnly after 0.3 s without fix → Lost after 2 s. | pure-rotation exactness, focal-length error, gyro bias with 30 fps fixes, state transitions |
+| `pipeline` | `Tracker`: anchors each fix at the frame's capture time and replays the gyro samples recorded after it (latency compensation; exact in synthetic tests). | late-frame replay, out-of-order frames, bounded history |
+| `detect` (feature `detector`) | JPEG → grayscale, then the vendored AprilTag C detector. | real-JPEG end-to-end, size-mismatch rejection |
 | `tags` / `tag36h11` | Official tag36h11 code table and renderer (10×10 cells incl. quiet zone). | table integrity, Hamming distance ≥ 11 under rotation |
 
 Synthetic results (`tests/synthetic.rs`, 1280×720 camera, f = 1000 px, 2–4 screen heights away, random

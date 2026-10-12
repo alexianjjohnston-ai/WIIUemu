@@ -89,10 +89,10 @@ Rust crates can be compiled to WASM once a toolchain is set up; Option B doesn't
 
 1. [ ] Prove `apriltag-sys` builds on Windows (MSVC) and macOS in CI (detector regression test in
    `crates/wiiu-tracking/tests`).
-2. [ ] Protocol v2 draft: binary `camera_frame` messages (header: seq, capture timestamp, width, height, JPEG
+2. [x] Protocol v2 draft: binary `camera_frame` messages (header: seq, capture timestamp, width, height, JPEG
    payload ≤ 64 KB) and `gyro` batches. Size limits and rate caps per slot.
-3. [ ] Server pipeline per Wii Remote slot: decode → detect → `estimate_aim` → `PointerFusion` → DSU touch point,
-   with timing metrics exposed on `/api/status`.
+3. [x] Server pipeline per Wii Remote slot: decode → detect → `estimate_aim` → `PointerFusion` → DSU touch point,
+   with timing metrics exposed on `/api/status` (metrics still to do).
 4. [ ] Phone: camera capture worker (rear camera, 640×360, grayscale JPEG via `OffscreenCanvas.convertToBlob`),
    gyro streaming from `DeviceMotionEvent` (requires the HTTPS listener).
 5. [ ] Measure on real phones: fix rate, end-to-end latency, aiming error and battery. Record the results in

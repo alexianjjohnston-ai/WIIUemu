@@ -124,7 +124,8 @@ the four phones exactly.
 
 ## Protocol version 2: camera tracking (Wii Remote role)
 
-> Status: specified, server implementation in progress (`feat/apriltag-tracking`). See ADR-0001.
+> Status: implemented on the server (`crates/wiiu-connect/src/tracking.rs`) and tested end to end with synthetic
+> JPEG frames. The phone client does not send frames yet. See ADR-0001.
 
 Version 2 is version 1 plus two messages, so a phone can let the PC compute its pointer from the camera. A phone
 sends `"protocol": 2` in `hello`. The server accepts both 1 and 2 and replies with the version it accepted in

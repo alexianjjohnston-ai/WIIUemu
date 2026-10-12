@@ -12,7 +12,7 @@ use axum::{Json, Router};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use wiiu_controller::protocol::MAX_FRAME_BYTES;
+use wiiu_controller::protocol::MAX_CAMERA_FRAME_BYTES;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -94,8 +94,10 @@ async fn ws_upgrade(
     if !origin_allowed(&headers, &state.config) {
         return (StatusCode::FORBIDDEN, "origin not allowed").into_response();
     }
-    ws.max_message_size(MAX_FRAME_BYTES)
-        .max_frame_size(MAX_FRAME_BYTES)
+    // Binary camera frames (protocol v2) may be up to MAX_CAMERA_FRAME_BYTES; text frames are still limited to
+    // MAX_FRAME_BYTES by `ws::next_message`.
+    ws.max_message_size(MAX_CAMERA_FRAME_BYTES)
+        .max_frame_size(MAX_CAMERA_FRAME_BYTES)
         .on_upgrade(move |socket| crate::ws::handle(socket, state.sessions, peer))
 }
 

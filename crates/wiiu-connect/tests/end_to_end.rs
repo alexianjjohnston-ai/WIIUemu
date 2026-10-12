@@ -331,3 +331,111 @@ async fn https_listener_serves_phones_with_self_signed_cert() {
     assert!(out.contains("tag36h11"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Renders the default marker border frontally (game image centred) as a grayscale JPEG.
+fn border_jpeg(w: usize, h: usize) -> Vec<u8> {
+    use wiiu_tracking::{BorderConfig, MarkerLayout};
+    let layout = MarkerLayout::border(&BorderConfig::default());
+    let scale = h as f64 * 0.7;
+    let ox = w as f64 / 2.0 - layout.aspect * scale / 2.0;
+    let oy = h as f64 / 2.0 - scale / 2.0;
+    let to_px = |x: f64, y: f64| (ox + x * layout.aspect * scale, oy + y * scale);
+    let mut img = vec![90u8; w * h];
+    for m in &layout.markers {
+        let cells = wiiu_tracking::tags::render(m.id as usize).unwrap();
+        let (x0, y0) = to_px(m.corners[3][0], m.corners[3][1]);
+        let (x1, _) = to_px(m.corners[1][0], 0.0);
+        let cell = (x1 - x0) / 8.0;
+        for py in 0..h {
+            for px in 0..w {
+                let cx = ((px as f64 + 0.5 - x0) / cell + 1.0).floor();
+                let cy = ((py as f64 + 0.5 - y0) / cell + 1.0).floor();
+                if (0.0..10.0).contains(&cx) && (0.0..10.0).contains(&cy) {
+                    img[py * w + px] = if cells[cy as usize][cx as usize] { 255 } else { 0 };
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    jpeg_encoder::Encoder::new(&mut out, 75)
+        .encode(&img, w as u16, h as u16, jpeg_encoder::ColorType::Luma)
+        .unwrap();
+    out
+}
+
+#[tokio::test]
+async fn camera_frames_drive_the_wiimote_pointer_over_protocol_v2() {
+    use wiiu_controller::protocol::encode_camera_frame;
+    let (r, _stop) = server().await;
+    let mut ws = connect(&r).await;
+    send(
+        &mut ws,
+        json!({"type":"hello","protocol":2,"token":TOKEN,"role":"wiimote","deviceId":"device-4000"}),
+    )
+    .await;
+    let welcome = recv(&mut ws).await;
+    assert_eq!(welcome["protocol"], 2);
+    let probe = DsuProbe::connect(r.dsu_addr).await.unwrap();
+
+    // The phone's own pointer says top-left; the camera says the centre. The camera must win.
+    send(
+        &mut ws,
+        json!({"type":"input","seq":1,"buttons":["B"],"pointer":{"x":0.05,"y":0.05}}),
+    )
+    .await;
+    send(&mut ws, json!({"type":"gyro","samples":[[900000,0.0,0.0,0.0]]})).await;
+    let jpeg = border_jpeg(640, 360);
+    ws.send(Message::Binary(
+        encode_camera_frame(640, 360, 1, 1_000_000, &jpeg).into(),
+    ))
+    .await
+    .unwrap();
+
+    let pad = probe
+        .wait_for_pad(1, T, |p| p.touch[0].is_some_and(|t| (t.x as i32 - 960).abs() < 25))
+        .await
+        .unwrap();
+    assert_eq!(pad.buttons, dsu::CIRCLE, "buttons still come from input snapshots");
+    let t = pad.touch[0].unwrap();
+    assert!((t.y as i32 - 471).abs() < 15, "{t:?}");
+
+    // The phone gets tracking feedback.
+    let mut got = None;
+    for _ in 0..20 {
+        let m = recv(&mut ws).await;
+        if m["type"] == "tracking" && m["state"] == "tracking" {
+            got = Some(m);
+            break;
+        }
+    }
+    let m = got.expect("tracking feedback");
+    assert_eq!(m["tags"], 10);
+}
+
+#[tokio::test]
+async fn camera_frames_are_rejected_on_protocol_v1_and_for_bad_headers() {
+    use wiiu_controller::protocol::encode_camera_frame;
+    let (r, _stop) = server().await;
+    let mut ws = connect(&r).await;
+    hello(&mut ws, "device-4100").await; // protocol 1
+    ws.send(Message::Binary(
+        encode_camera_frame(640, 360, 1, 1, &[0xFF, 0xD8]).into(),
+    ))
+    .await
+    .unwrap();
+    assert_eq!(recv_error_and_close(&mut ws).await.unwrap()["code"], "invalid_message");
+
+    let mut ws = connect(&r).await;
+    send(
+        &mut ws,
+        json!({"type":"hello","protocol":2,"token":TOKEN,"role":"wiimote","deviceId":"device-4101"}),
+    )
+    .await;
+    recv(&mut ws).await;
+    ws.send(Message::Binary(
+        encode_camera_frame(5000, 360, 1, 1, &[0xFF, 0xD8]).into(),
+    ))
+    .await
+    .unwrap();
+    assert_eq!(recv_error_and_close(&mut ws).await.unwrap()["code"], "invalid_message");
+}
