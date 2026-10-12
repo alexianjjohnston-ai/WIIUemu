@@ -76,7 +76,6 @@ struct Worker {
     last_fix: Option<Instant>,
     fixes: VecDeque<Instant>,
     last_status: Instant,
-    last_published: Option<Option<(f32, f32)>>,
 }
 
 impl Worker {
@@ -100,7 +99,6 @@ impl Worker {
             last_fix: None,
             fixes: VecDeque::new(),
             last_status: Instant::now(),
-            last_published: None,
         }
     }
 
@@ -189,12 +187,8 @@ impl Worker {
             self.fixes.pop_front();
         }
         let (state, pointer) = self.state(now);
-        // Tell the session only while we have (or just lost) a fix, so a phone that never sees the TV keeps
-        // control of its own pointer field.
-        if self.last_fix.is_some() && (state != TrackingState::Lost || self.last_published != Some(None)) {
-            self.sessions.set_tracked_pointer(self.conn_id, self.slot, pointer, now);
-            self.last_published = Some(pointer);
-        }
+        // The session decides whether this pointer applies (only while camera frames keep arriving).
+        self.sessions.set_tracked_pointer(self.conn_id, self.slot, pointer, now);
         if now.saturating_duration_since(self.last_status) >= STATUS_INTERVAL {
             self.last_status = now;
             self.status.send_replace(Some(ServerMessage::Tracking {
