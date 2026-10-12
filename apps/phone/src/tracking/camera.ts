@@ -2,6 +2,7 @@
 // The encoding rules live in frame.ts / gyro.ts (unit-tested). This file only talks to browser APIs and is
 // exercised by the Playwright tests with Chromium's fake camera.
 
+import { detectConvention } from '../motion/convert';
 import { MAX_CAMERA_PAYLOAD_BYTES, type GyroMessage } from '../protocol/types';
 import { DEFAULT_MAX_LONG_SIDE, encodeCameraFrame, fitFrameSize, nextJpegQuality } from './frame';
 import { GyroBatcher, rotationRateToRad } from './gyro';
@@ -174,7 +175,9 @@ async function encodeJpeg(source: CanvasImageSource, width: number, height: numb
   return blob ? new Uint8Array(await blob.arrayBuffer()) : null;
 }
 
-type MotionPermissionApi = { requestPermission?: () => Promise<'granted' | 'denied'> };
+type MotionPermissionApi = {
+  requestPermission?: () => Promise<'granted' | 'denied'>;
+};
 
 /**
  * iOS asks for motion access; it must be requested from a tap. Resolves true when motion events may arrive
@@ -195,6 +198,7 @@ export async function requestMotionPermission(): Promise<boolean> {
 export class MotionStreamer {
   private readonly batcher: GyroBatcher;
   private listening = false;
+  private readonly convention = detectConvention();
   samples = 0;
 
   constructor(send: (msg: GyroMessage) => boolean) {
@@ -202,7 +206,7 @@ export class MotionStreamer {
   }
 
   private readonly onMotion = (e: DeviceMotionEvent) => {
-    const rate = rotationRateToRad(e.rotationRate);
+    const rate = rotationRateToRad(e.rotationRate, this.convention);
     if (!rate) return;
     this.samples += 1;
     // Event.timeStamp shares performance.now()'s clock with the camera capture time.

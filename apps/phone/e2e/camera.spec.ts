@@ -50,9 +50,12 @@ test.describe('camera pointing', () => {
     });
     await expect.poll(() => server.gyro.length).toBeGreaterThan(0);
     const sample = server.gyro[0]?.samples[0];
-    expect(sample?.[1]).toBeCloseTo(Math.PI); // beta → x
-    expect(sample?.[2]).toBeCloseTo(-Math.PI / 4); // gamma → y
-    expect(sample?.[3]).toBeCloseTo(Math.PI / 2); // alpha → z
+    // iOS user agent = WebKit, which reports CoreMotion x/y/z as alpha/beta/gamma (docs/research.md §9).
+    const ios = await page.evaluate(() => /iPhone|iPad|iPod/.test(navigator.userAgent));
+    const [x, y, z] = ios ? [Math.PI / 2, Math.PI, -Math.PI / 4] : [Math.PI, -Math.PI / 4, Math.PI / 2];
+    expect(sample?.[1]).toBeCloseTo(x); // W3C: beta → x
+    expect(sample?.[2]).toBeCloseTo(y); // W3C: gamma → y
+    expect(sample?.[3]).toBeCloseTo(z); // W3C: alpha → z
   });
 
   test('a protocol 1 PC hides the camera toggle and gets no frames', async ({ page, server }) => {
