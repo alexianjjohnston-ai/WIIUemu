@@ -16,10 +16,14 @@ Hand-off notes for the next session. Newest first.
 - Live check in the container: Playwright drove `/dev/pointer` while `wiiu-connect probe` received the
   expected DSU data. Mouse at (0.25, 0.75) became touch (480, 707); A became Cross; H became L3; the slot went
   neutral after the page closed.
-- Phone Wii Remote PWA: built by the mobile interface agent in a separate worktree. See the entry for its merge
-  (below, once merged).
+- Phone Wii Remote PWA (`apps/phone`) merged. The agent that built it stopped before reporting; its uncommitted
+  work was reviewed, committed and merged by the lead. Live check in the container: the real PWA (Playwright,
+  Pixel 7 emulation) served by `wiiu-connect` paired, lit LED 1, and a touch on A showed up in `probe` as Cross
+  (bit 14). The bit cleared on release; the slot freed when the page closed.
+- Security fix from the security-guidance review: `?server=` is honoured only by the Vite dev server.
 
 ### Tests
+- Phone: 88 unit tests (Vitest) and 69 Playwright e2e tests (Pixel 7 + iPhone 13 viewports, Chromium).
 - Rust: 63 tests (unit + loopback UDP + end-to-end WebSocket → DSU) pass; `clippy -D warnings` and `fmt` are
   clean.
 
@@ -33,7 +37,7 @@ Hand-off notes for the next session. Newest first.
 - Physical phone behaviour (multi-touch, haptics) is unverified.
 
 ### Next
-1. Merge the phone PWA branch after review; build it into `apps/phone/dist` so `wiiu-connect` serves it.
+1. Try the PWA on real phones (multi-touch, haptics, wake lock, iOS Safari).
 2. Windows + Cemu verification of the three checks above. Record the results in `docs/compatibility.md`.
 3. Milestone 2: HTTPS for phones (needed for camera and motion), then the AprilTag border renderer and
    detection prototype (`docs/tracking.md`).
