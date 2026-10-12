@@ -66,14 +66,19 @@ pub fn lan_ip() -> Option<IpAddr> {
     (!ip.is_unspecified() && !ip.is_loopback()).then_some(ip)
 }
 
+/// A fixed token must fit the protocol's `hello.token` limit and survive the pairing URL unencoded.
+fn valid_fixed_token(t: &str) -> bool {
+    (16..=128).contains(&t.len()) && t.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 /// Binds all sockets and spawns the server tasks. Returns once everything is listening.
 pub async fn start(
     config: ServerConfig,
     shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> anyhow::Result<(Running, tokio::task::JoinHandle<()>)> {
     let token = match config.token {
-        Some(t) if t.len() >= 16 => t,
-        Some(_) => anyhow::bail!("--token must be at least 16 characters"),
+        Some(t) if valid_fixed_token(&t) => t,
+        Some(_) => anyhow::bail!("--token must be 16-128 characters of A-Z, a-z, 0-9, '-' or '_'"),
         None => generate_token()?,
     };
     let table = SlotTable::new();
@@ -198,4 +203,19 @@ pub async fn start(
         },
         all,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::valid_fixed_token;
+
+    #[test]
+    fn fixed_tokens_must_be_url_safe_and_fit_the_protocol() {
+        assert!(valid_fixed_token("test-pairing-token-not-secret"));
+        assert!(valid_fixed_token(&"a".repeat(128)));
+        assert!(!valid_fixed_token("short"));
+        assert!(!valid_fixed_token(&"a".repeat(129)));
+        assert!(!valid_fixed_token("has space in the token"));
+        assert!(!valid_fixed_token("amp&ersand-token-value"));
+    }
 }
