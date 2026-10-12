@@ -77,6 +77,9 @@ export class Connection {
   private ready = false;
   private failures = 0;
   private lastError: ConnError | null = null;
+  /** Version sent in `hello`; drops to MIN_PROTOCOL_VERSION once an older PC rejects the newer one. */
+  private helloProtocol: number = PROTOCOL_VERSION;
+  private retryOlderProtocol = false;
   private lastHeardAt = 0;
   private pingId = 0;
   private pingSentAt = new Map<number, number>();
@@ -111,6 +114,7 @@ export class Connection {
   start(): void {
     if (this.state.status === 'idle' || this.state.status === 'failed') {
       this.failures = 0;
+      this.helloProtocol = PROTOCOL_VERSION;
       this.open();
     }
   }
@@ -193,7 +197,7 @@ export class Connection {
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
-      const hello: HelloMessage = { type: 'hello', protocol: PROTOCOL_VERSION, ...this.opts.hello };
+      const hello: HelloMessage = { type: 'hello', protocol: this.helloProtocol, ...this.opts.hello };
       this.send(hello);
     };
     ws.onmessage = (ev) => {
@@ -243,6 +247,12 @@ export class Connection {
         return;
       }
       case 'error':
+        if (msg.code === 'unsupported_protocol' && !this.ready && this.helloProtocol > MIN_PROTOCOL_VERSION) {
+          // An older PC (protocol 1, no camera pointing): say hello again with the oldest version we speak.
+          this.helloProtocol = MIN_PROTOCOL_VERSION;
+          this.retryOlderProtocol = true;
+          return;
+        }
         // The server closes right after sending an error; remember why.
         this.lastError = { code: msg.code, detail: msg.message };
         return;
@@ -306,6 +316,11 @@ export class Connection {
   }
 
   private handleClosed(): void {
+    if (this.retryOlderProtocol) {
+      this.retryOlderProtocol = false;
+      this.open();
+      return;
+    }
     const reason = this.lastError ?? { code: 'network' };
     if (isTerminal(reason)) {
       this.setState({ status: 'failed', reason });

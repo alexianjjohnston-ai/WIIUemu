@@ -205,6 +205,11 @@ fn cemu_profile(args: ProfileArgs) -> anyhow::Result<()> {
             .find(|d| d.is_dir())
             .context("could not find Cemu's controllerProfiles folder; pass --dir")?,
     };
+    // Validate everything before writing anything, so a bad argument never leaves a partial set behind.
+    anyhow::ensure!(
+        args.players.iter().all(|p| (1..=3).contains(p)),
+        "players must be 1, 2 or 3"
+    );
     if !args.no_gamepad {
         let profile = GamepadProfile {
             dsu_port: args.dsu_port,
@@ -212,8 +217,7 @@ fn cemu_profile(args: ProfileArgs) -> anyhow::Result<()> {
         };
         println!("wrote {}", write_profile(&dir, &profile, args.force)?.display());
     }
-    for player in args.players {
-        anyhow::ensure!((1..=3).contains(&player), "players must be 1, 2 or 3");
+    for &player in &args.players {
         let mut profile = WiimoteProfile::for_player(player);
         profile.dsu_port = args.dsu_port;
         profile.extension = match args.extension {
@@ -225,8 +229,13 @@ fn cemu_profile(args: ProfileArgs) -> anyhow::Result<()> {
         let path = write_profile(&dir, &profile, args.force)?;
         println!("wrote {}", path.display());
     }
-    println!("In Cemu: Options → Input settings → Controller 1 → load WiiUConnect_GamePad;");
-    println!("         Controllers 2–4 → load WiiUConnect_Wiimote1/2/3.");
+    println!("In Cemu: Options → Input settings, then:");
+    if !args.no_gamepad {
+        println!("  Controller 1 → load WiiUConnect_GamePad");
+    }
+    for &player in &args.players {
+        println!("  Controller {} → load WiiUConnect_Wiimote{player}", player + 1);
+    }
     Ok(())
 }
 
