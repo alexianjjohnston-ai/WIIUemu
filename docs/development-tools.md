@@ -14,6 +14,10 @@ CI also builds and tests on `windows-latest`.
 
 ## Claude Code plugins
 
+On 2026-10-12 the marketplace was added and these plugins were installed at project scope with
+`claude plugin install <name>@claude-plugins-official --scope project`. Plugins load at the next session start.
+`typescript-language-server` 5.3.0 was installed globally for `typescript-lsp`.
+
 Every plugin requested in the project brief exists in the official marketplace (`claude-plugins-official`,
 checked against its `marketplace.json`). Project settings (`.claude/settings.json`) register that marketplace and
 enable the plugins below for local development, where Claude Code asks each developer to trust them.
@@ -29,7 +33,10 @@ enable the plugins below for local development, where Claude Code asks each deve
 | `context7` | enabled in project settings | current library docs (Tauri, axum, WebRTC). Needs network access to `mcp.context7.com`. |
 | `github` | **not enabled** | needs a `GITHUB_PERSONAL_ACCESS_TOKEN` and access to `api.githubcopilot.com`. Cloud sessions use the built-in GitHub MCP tools instead. |
 | `figma` | later | for controller design work (Milestone 4+). The Figma MCP was unreachable from the cloud container. |
-| `superpowers`, `code-review`, `code-simplifier`, `claude-md-management` | not enabled yet | to be re-evaluated when PR volume grows. Until then, reviews use the built-in `/code-review` and `/security-review`. |
+| `code-review` | installed (project scope) | PR reviews |
+| `code-simplifier` | installed (project scope) | post-test maintainability passes |
+| `claude-md-management` | installed (project scope) | keeps CLAUDE.md accurate |
+| `superpowers` | installed (project scope) | planning, TDD and structured debugging workflows |
 
 ### Cloud session limits (observed 2026-10-12)
 
