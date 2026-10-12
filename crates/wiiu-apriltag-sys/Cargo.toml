@@ -1,0 +1,16 @@
+[package]
+name = "wiiu-apriltag-sys"
+description = "Vendored AprilTag C detector (tag36h11) behind a primitive-only C shim, built with cc on Windows, macOS and Linux"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license = "BSD-2-Clause AND MIT"
+links = "wiiu_apriltag"
+
+[build-dependencies]
+cc = "1"
+
+# Not `[lints] workspace = true`: this crate is the one place FFI (`unsafe`) is allowed. Clippy still applies.
+[lints.clippy]
+all = { level = "warn", priority = -1 }

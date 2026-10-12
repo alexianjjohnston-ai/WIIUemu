@@ -87,8 +87,12 @@ Rust crates can be compiled to WASM once a toolchain is set up; Option B doesn't
 
 ## Action Items
 
-1. [ ] Prove `apriltag-sys` builds on Windows (MSVC) and macOS in CI (detector regression test in
-   `crates/wiiu-tracking/tests`).
+1. [x] Prove the detector builds on Windows (MSVC). **Finding:** `apriltag-sys` 0.3 bundles an old AprilTag snapshot
+   that includes `pthread.h` and fails on MSVC (CI, 2026-10-12). Its pre-generated bindings don't match newer
+   upstream structs, so pointing it at a newer source isn't safe. **Resolution:** `crates/wiiu-apriltag-sys` vendors
+   pinned upstream AprilTag, which supports MSVC via `pthreads_cross`, and exposes it through a primitive-only C shim, so Rust never
+   depends on C struct layouts. The pure-Rust `kornia-apriltag` 0.1.10 was also evaluated: it found 7 of 10 tags on the
+   synthetic border, and its corner order differed from its own docs, so it was rejected for now.
 2. [x] Protocol v2 draft: binary `camera_frame` messages (header: seq, capture timestamp, width, height, JPEG
    payload ≤ 64 KB) and `gyro` batches. Size limits and rate caps per slot.
 3. [x] Server pipeline per Wii Remote slot: decode → detect → `estimate_aim` → `PointerFusion` → DSU touch point,

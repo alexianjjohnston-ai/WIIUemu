@@ -1,6 +1,5 @@
-//! JPEG decoding and AprilTag detection (feature `detector`; wraps the vendored AprilTag C library).
-//!
-//! `apriltag::Detector` holds raw C pointers and is not `Send`: create one [`TagDetector`] per thread.
+//! JPEG decoding and AprilTag detection (feature `detector`; wraps the vendored AprilTag C library in
+//! `crates/wiiu-apriltag-sys`).
 
 use crate::aim::TagObservation;
 
@@ -12,8 +11,8 @@ pub enum DetectError {
     SizeMismatch { expected: (u16, u16), got: (u16, u16) },
     #[error("unsupported pixel format {0:?}")]
     PixelFormat(jpeg_decoder::PixelFormat),
-    #[error("detector setup failed: {0}")]
-    Setup(String),
+    #[error("detector setup failed")]
+    Setup,
 }
 
 /// Decodes a baseline JPEG to 8-bit grayscale. Rejects images whose size differs from `expected`.
@@ -39,39 +38,26 @@ pub fn decode_jpeg_gray(jpeg: &[u8], expected: (u16, u16)) -> Result<Vec<u8>, De
 }
 
 pub struct TagDetector {
-    detector: apriltag::Detector,
+    detector: wiiu_apriltag_sys::Detector,
 }
 
 impl TagDetector {
-    /// tag36h11 with 1-bit error correction (keeps false positives very low at TV-border sizes).
+    /// tag36h11 with 1-bit error correction (keeps false positives very low at TV-border sizes), one thread,
+    /// upstream default decimation (2.0).
     pub fn new() -> Result<Self, DetectError> {
-        let detector = apriltag::DetectorBuilder::new()
-            .add_family_bits(apriltag::Family::tag_36h11(), 1)
-            .build()
-            .map_err(|e| DetectError::Setup(format!("{e:?}")))?;
+        let detector = wiiu_apriltag_sys::Detector::tag36h11(1, 2.0).ok_or(DetectError::Setup)?;
         Ok(Self { detector })
     }
 
     /// Detects tags in a `width × height` grayscale image (row-major, no padding).
     pub fn detect(&mut self, gray: &[u8], width: usize, height: usize) -> Vec<TagObservation> {
-        assert_eq!(gray.len(), width * height, "gray buffer size");
-        let Ok(mut img) = apriltag::Image::zeros_with_stride(width, height, width) else {
-            return Vec::new();
-        };
-        let stride = img.stride();
-        let dst = img.as_slice_mut();
-        for (y, row) in gray.chunks_exact(width).enumerate() {
-            dst[y * stride..y * stride + width].copy_from_slice(row);
-        }
         self.detector
-            .detect(&img)
-            .iter()
-            .map(|d| {
-                let c = d.corners();
-                TagObservation {
-                    id: d.id() as u32,
-                    corners: [c[0], c[1], c[2], c[3]],
-                }
+            .detect(gray, width, height)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|d| TagObservation {
+                id: d.id,
+                corners: d.corners,
             })
             .collect()
     }

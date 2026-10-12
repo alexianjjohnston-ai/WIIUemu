@@ -1,7 +1,10 @@
-//! Regression test against the real AprilTag detector (vendored C library via `apriltag-sys`):
+//! Regression test against the real AprilTag detector (vendored C library, `crates/wiiu-apriltag-sys`):
 //! our rendered border must be detected with the right ids, and the detector's corner order must match
 //! `wiiu_tracking::markers::CORNER_ORDER`, so `estimate_aim` receives correctly paired points.
 
+#![cfg(feature = "detector")]
+
+use wiiu_tracking::detect::TagDetector;
 use wiiu_tracking::{estimate_aim, AimConfig, BorderConfig, MarkerLayout, TagObservation};
 
 const W: usize = 640;
@@ -9,17 +12,12 @@ const H: usize = 360;
 
 /// Renders the border frontally: game image centred, `scale` px per game-height unit. Returns the image and the
 /// game-normalised → pixel mapping.
-fn render_frontal(layout: &MarkerLayout, scale: f64) -> (apriltag::Image, impl Fn(f64, f64) -> (f64, f64)) {
+fn render_frontal(layout: &MarkerLayout, scale: f64) -> (Vec<u8>, impl Fn(f64, f64) -> (f64, f64)) {
     let ox = W as f64 / 2.0 - layout.aspect * scale / 2.0;
     let oy = H as f64 / 2.0 - scale / 2.0;
     let aspect = layout.aspect;
     let to_px = move |x: f64, y: f64| (ox + x * aspect * scale, oy + y * scale);
-    let mut img = apriltag::Image::zeros_with_stride(W, H, W).unwrap();
-    for y in 0..H {
-        for x in 0..W {
-            img[(x, y)] = 90;
-        }
-    }
+    let mut img = vec![90u8; W * H];
     for m in &layout.markers {
         let cells = wiiu_tracking::tags::render(m.id as usize).unwrap();
         let (x0, y0) = to_px(m.corners[3][0], m.corners[3][1]); // top-left of the black border
@@ -30,7 +28,7 @@ fn render_frontal(layout: &MarkerLayout, scale: f64) -> (apriltag::Image, impl F
                 let cx = ((px as f64 + 0.5 - x0) / cell + 1.0).floor();
                 let cy = ((py as f64 + 0.5 - y0) / cell + 1.0).floor();
                 if (0.0..10.0).contains(&cx) && (0.0..10.0).contains(&cy) {
-                    img[(px, py)] = if cells[cy as usize][cx as usize] { 255 } else { 0 };
+                    img[py * W + px] = if cells[cy as usize][cx as usize] { 255 } else { 0 };
                 }
             }
         }
@@ -38,21 +36,8 @@ fn render_frontal(layout: &MarkerLayout, scale: f64) -> (apriltag::Image, impl F
     (img, to_px)
 }
 
-fn detect(img: &apriltag::Image) -> Vec<TagObservation> {
-    let mut det = apriltag::DetectorBuilder::new()
-        .add_family_bits(apriltag::Family::tag_36h11(), 1)
-        .build()
-        .unwrap();
-    det.detect(img)
-        .iter()
-        .map(|d| {
-            let c = d.corners();
-            TagObservation {
-                id: d.id() as u32,
-                corners: [c[0], c[1], c[2], c[3]],
-            }
-        })
-        .collect()
+fn detect(img: &[u8]) -> Vec<TagObservation> {
+    TagDetector::new().unwrap().detect(img, W, H)
 }
 
 #[test]
