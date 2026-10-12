@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+publish = false
+
+[workspace.dependencies]
+wiiu-dsu = { path = "crates/wiiu-dsu" }
+wiiu-controller = { path = "crates/wiiu-controller" }
+wiiu-cemu = { path = "crates/wiiu-cemu" }
+
+anyhow = "1"
+thiserror = "2"
+crc32fast = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
