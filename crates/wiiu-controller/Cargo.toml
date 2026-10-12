@@ -1,0 +1,16 @@
+[package]
+name = "wiiu-controller"
+description = "Controller models (Wii Remote, GamePad) and the phone <-> PC protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+wiiu-dsu.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
