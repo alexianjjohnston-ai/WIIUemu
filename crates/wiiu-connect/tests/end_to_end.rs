@@ -25,6 +25,7 @@ async fn server() -> (Running, tokio::sync::watch::Sender<bool>) {
             web_dir: None,
             allowed_origins: vec![],
             public_host: None,
+            https: None,
         },
         rx,
     )
@@ -279,4 +280,54 @@ async fn tracking_layout_is_public_and_complete() {
         assert!(cells.split('/').all(|row| row.len() == 10));
         assert_eq!(m["corners"].as_array().unwrap().len(), 4);
     }
+}
+
+#[tokio::test]
+async fn https_listener_serves_phones_with_self_signed_cert() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let dir = std::env::temp_dir().join(format!("wiiu-e2e-tls-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let (_tx, rx) = tokio::sync::watch::channel(false);
+    let (r, _task) = start(
+        ServerConfig {
+            bind: "127.0.0.1:0".parse().unwrap(),
+            dsu_bind: "127.0.0.1:0".parse().unwrap(),
+            token: Some(TOKEN.into()),
+            web_dir: None,
+            allowed_origins: vec![],
+            public_host: Some("127.0.0.1".into()),
+            https: Some(wiiu_connect::HttpsConfig {
+                bind: "127.0.0.1:0".parse().unwrap(),
+                data_dir: dir.clone(),
+            }),
+        },
+        rx,
+    )
+    .await
+    .unwrap();
+    let https = r.https_addr.unwrap();
+    assert!(r.phone_url.starts_with(&format!("https://127.0.0.1:{}", https.port())));
+
+    // Trust exactly the generated certificate, as a phone does after accepting the warning.
+    let pem = std::fs::read(r.cert_path.as_ref().unwrap()).unwrap();
+    let mut roots = tokio_rustls::rustls::RootCertStore::empty();
+    for cert in tokio_rustls::rustls::pki_types::pem::PemObject::pem_slice_iter(&pem) {
+        roots.add(cert.unwrap()).unwrap();
+    }
+    let client = tokio_rustls::rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    let connector = tokio_rustls::TlsConnector::from(std::sync::Arc::new(client));
+    let tcp = tokio::net::TcpStream::connect(https).await.unwrap();
+    let name = tokio_rustls::rustls::pki_types::ServerName::try_from("127.0.0.1").unwrap();
+    let mut tls = connector.connect(name, tcp).await.unwrap();
+    tls.write_all(b"GET /api/tracking/layout HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut out = Vec::new();
+    let _ = tls.read_to_end(&mut out).await;
+    let out = String::from_utf8_lossy(&out);
+    assert!(out.starts_with("HTTP/1.1 200"), "{out}");
+    assert!(out.contains("tag36h11"));
+    let _ = std::fs::remove_dir_all(&dir);
 }

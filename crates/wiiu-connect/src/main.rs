@@ -51,6 +51,15 @@ struct ServeArgs {
     /// Host name or IP that phones should use (default: detected LAN IP).
     #[arg(long)]
     public_host: Option<String>,
+    /// HTTPS address for phones (self-signed certificate; needed for camera and motion sensors).
+    #[arg(long, default_value = "0.0.0.0:8738")]
+    https_bind: SocketAddr,
+    /// Serve phones over plain HTTP only (buttons work; camera and iOS motion sensors will not).
+    #[arg(long)]
+    no_https: bool,
+    /// Folder for the HTTPS certificate and other runtime data.
+    #[arg(long)]
+    data_dir: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -125,6 +134,10 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             web_dir,
             allowed_origins: args.allowed_origins,
             public_host: args.public_host,
+            https: (!args.no_https).then(|| wiiu_connect::HttpsConfig {
+                bind: args.https_bind,
+                data_dir: args.data_dir.unwrap_or_else(wiiu_connect::tls::default_data_dir),
+            }),
         },
         stop_rx,
     )
@@ -138,6 +151,12 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     println!("  Phone link:         {}", running.phone_url);
     println!("  Mouse pointer test: {local}/dev/pointer");
     println!("  Cemu DSU server:    {}", running.dsu_addr);
+    if let Some(cert) = &running.cert_path {
+        println!(
+            "  HTTPS certificate:  {} (self-signed: accept the browser warning once per phone)",
+            cert.display()
+        );
+    }
     println!();
     if let Ok(code) = qrcode::QrCode::new(running.phone_url.as_bytes()) {
         let qr = code
