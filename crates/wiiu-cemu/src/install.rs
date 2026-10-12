@@ -10,7 +10,7 @@
 //!   folders under `<GamePaths><Entry>…</Entry></GamePaths>`. Missing settings fall back to defaults, and a
 //!   missing `settings.xml` makes Cemu show its first-start dialog.
 
-use crate::{profile_dir_candidates_for, CemuProfile, Platform, WiimoteProfile};
+use crate::{profile_dir_candidates_for, CemuProfile, GamepadProfile, Platform, WiimoteProfile};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -85,7 +85,7 @@ fn find_executable(dir: &Path, platform: Platform) -> Option<PathBuf> {
     }
 }
 
-/// What [`assign_wiimotes`] did, for showing to the user.
+/// What [`assign_controllers`] did, for showing to the user.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct AssignReport {
     pub written: Vec<PathBuf>,
@@ -93,24 +93,37 @@ pub struct AssignReport {
     pub backups: Vec<PathBuf>,
 }
 
-/// Writes the `WiiUConnect_Wiimote{1,2,3}` profiles and makes them the active config of Cemu's Controllers 2–4
-/// (`controller1.xml` … `controller3.xml`). Any different existing active config is first copied to
-/// `controllerN.xml.before-wiiu-connect` (once; later runs keep the oldest backup). Controller 1 (the GamePad) is
-/// left alone.
-pub fn assign_wiimotes(install: &CemuInstall) -> io::Result<AssignReport> {
+/// The profile Wii U Connect puts on each of Cemu's controllers: index 0 is Controller 1 (the GamePad, DSU slot
+/// 0), indices 1–3 are Controllers 2–4 (Wii Remotes for players 1–3, DSU slots 1–3).
+fn controller_profiles() -> [(String, String); 4] {
+    let gamepad = GamepadProfile::default();
+    let wiimote = |player: u8| {
+        let p = WiimoteProfile::for_player(player);
+        (p.name().to_owned(), p.to_xml())
+    };
+    [
+        (gamepad.name().to_owned(), gamepad.to_xml()),
+        wiimote(1),
+        wiimote(2),
+        wiimote(3),
+    ]
+}
+
+/// Writes the `WiiUConnect_GamePad` and `WiiUConnect_Wiimote{1,2,3}` profiles and makes them the active configs of
+/// Cemu's Controllers 1–4 (`controller0.xml` … `controller3.xml`). Any different existing active config is first
+/// copied to `controllerN.xml.before-wiiu-connect` (once; later runs keep the oldest backup).
+pub fn assign_controllers(install: &CemuInstall) -> io::Result<AssignReport> {
     let dir = install.profiles_dir();
     fs::create_dir_all(&dir)?;
     let mut report = AssignReport::default();
-    for player in 1..=3u8 {
-        let profile = WiimoteProfile::for_player(player);
-        let xml = profile.to_xml();
-        let named = dir.join(format!("{}.xml", profile.name()));
+    for (index, (name, xml)) in controller_profiles().into_iter().enumerate() {
+        let named = dir.join(format!("{name}.xml"));
         fs::write(&named, &xml)?;
         report.written.push(named);
 
-        let active = dir.join(format!("controller{player}.xml"));
+        let active = dir.join(format!("controller{index}.xml"));
         if let Ok(existing) = fs::read(&active) {
-            let backup = dir.join(format!("controller{player}.xml.before-wiiu-connect"));
+            let backup = dir.join(format!("controller{index}.xml.before-wiiu-connect"));
             if existing != xml.as_bytes() && !backup.exists() {
                 fs::write(&backup, &existing)?;
                 report.backups.push(backup);
@@ -122,11 +135,10 @@ pub fn assign_wiimotes(install: &CemuInstall) -> io::Result<AssignReport> {
     Ok(report)
 }
 
-/// True when Controllers 2–4 already use Wii U Connect's profiles.
-pub fn wiimotes_assigned(install: &CemuInstall) -> bool {
-    (1..=3u8).all(|player| {
-        let expected = WiimoteProfile::for_player(player).to_xml();
-        fs::read_to_string(install.profiles_dir().join(format!("controller{player}.xml"))).is_ok_and(|s| s == expected)
+/// True when Controllers 1–4 already use Wii U Connect's profiles.
+pub fn controllers_assigned(install: &CemuInstall) -> bool {
+    controller_profiles().iter().enumerate().all(|(index, (_, expected))| {
+        fs::read_to_string(install.profiles_dir().join(format!("controller{index}.xml"))).is_ok_and(|s| s == *expected)
     })
 }
 
@@ -369,29 +381,40 @@ mod tests {
     }
 
     #[test]
-    fn assigning_wiimotes_backs_up_once_and_is_detected() {
+    fn assigning_controllers_backs_up_once_and_is_detected() {
         let t = TempDir::new("assign");
         let i = portable_windows_install(&t);
         let dir = i.profiles_dir();
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("controller1.xml"), "<user's own config/>").unwrap();
         fs::write(dir.join("controller0.xml"), "<gamepad config/>").unwrap();
-        assert!(!wiimotes_assigned(&i));
+        assert!(!controllers_assigned(&i));
 
-        let r = assign_wiimotes(&i).unwrap();
-        assert_eq!(r.backups, vec![dir.join("controller1.xml.before-wiiu-connect")]);
+        let r = assign_controllers(&i).unwrap();
         assert_eq!(
-            fs::read_to_string(dir.join("controller1.xml.before-wiiu-connect")).unwrap(),
-            "<user's own config/>"
+            r.backups,
+            vec![
+                dir.join("controller0.xml.before-wiiu-connect"),
+                dir.join("controller1.xml.before-wiiu-connect")
+            ]
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("controller0.xml.before-wiiu-connect")).unwrap(),
+            "<gamepad config/>"
         );
         assert_eq!(
             fs::read_to_string(dir.join("controller0.xml")).unwrap(),
-            "<gamepad config/>",
-            "GamePad untouched"
+            GamepadProfile::default().to_xml(),
+            "Controller 1 is the phone GamePad"
         );
-        assert!(wiimotes_assigned(&i));
+        assert_eq!(
+            fs::read_to_string(dir.join("controller1.xml")).unwrap(),
+            WiimoteProfile::for_player(1).to_xml()
+        );
+        assert!(dir.join("WiiUConnect_GamePad.xml").is_file());
+        assert!(controllers_assigned(&i));
         // Running again changes nothing and keeps the original backup.
-        let again = assign_wiimotes(&i).unwrap();
+        let again = assign_controllers(&i).unwrap();
         assert!(again.backups.is_empty());
         assert_eq!(
             fs::read_to_string(dir.join("controller1.xml.before-wiiu-connect")).unwrap(),
