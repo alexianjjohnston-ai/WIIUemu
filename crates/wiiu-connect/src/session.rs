@@ -45,6 +45,23 @@ struct SlotSession {
     tracked_pointer: Option<(f32, f32)>,
     /// When the last camera frame was accepted. While recent, `tracked_pointer` replaces `input.pointer`.
     camera_frame_at: Option<Instant>,
+    /// Latest tracking diagnostics from the worker, for the PC's `/tracking` page.
+    tracking_diag: Option<TrackingDiag>,
+}
+
+/// Camera-tracking numbers shown on the PC's `/tracking` page (for diagnosing real-world tracking quality).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct TrackingDiag {
+    /// Camera frame size `[width, height]`.
+    pub frame: [u16; 2],
+    pub frames_per_s: f32,
+    pub fixes_per_s: f32,
+    pub tags: u32,
+    /// Mean decode + detection time per frame, ms.
+    pub detect_ms: f32,
+    pub gyro_per_s: f32,
+    /// Learned gyro → camera map (`[[1,0],[0,1]]` = gyro as expected, zeros = gyro ignored).
+    pub gyro_map: [[f32; 2]; 2],
 }
 
 /// The server-computed pointer owns the slot until this long after the last accepted camera frame
@@ -66,6 +83,7 @@ impl SlotSession {
     fn clear_tracking(&mut self) {
         self.tracked_pointer = None;
         self.camera_frame_at = None;
+        self.tracking_diag = None;
     }
 }
 
@@ -89,6 +107,8 @@ pub struct SlotStatus {
     pub stale: bool,
     pub buttons: u32,
     pub pointer: Option<(f32, f32)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tracking: Option<TrackingDiag>,
 }
 
 pub struct SessionManager {
@@ -132,6 +152,7 @@ impl SessionManager {
                         motion_clock: MotionClock::default(),
                         last_motion: None,
                         tracked_pointer: None,
+                        tracking_diag: None,
                         camera_frame_at: None,
                     })
                     .collect(),
@@ -252,6 +273,16 @@ impl SessionManager {
         self.update_tracking(conn_id, slot, now, |sess| sess.tracked_pointer = pointer);
     }
 
+    /// Stores the worker's latest diagnostics for `slot` (owner only).
+    pub fn set_tracking_diag(&self, conn_id: u64, slot: usize, diag: TrackingDiag) {
+        let mut inner = self.lock();
+        if let Some(sess) = inner.slots.get_mut(slot) {
+            if sess.owner.as_ref().map(|o| o.conn_id) == Some(conn_id) {
+                sess.tracking_diag = Some(diag);
+            }
+        }
+    }
+
     fn update_tracking(&self, conn_id: u64, slot: usize, now: Instant, update: impl FnOnce(&mut SlotSession)) {
         let (role, _) = slot_layout(slot);
         let mut inner = self.lock();
@@ -316,6 +347,7 @@ impl SessionManager {
                     stale: s.stale,
                     buttons: s.input.buttons.0,
                     pointer: s.effective_input(Instant::now()).pointer,
+                    tracking: s.tracking_diag.clone(),
                 }
             })
             .collect()
