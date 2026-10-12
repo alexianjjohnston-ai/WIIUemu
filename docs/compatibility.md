@@ -25,5 +25,10 @@ Good first candidates for pointer verification: Wii Party U, Mario Party 10 and 
 
 ## Phones
 
-Not yet tested on physical devices. The phone UI is tested with Playwright mobile emulation (Pixel 7, iPhone 13
-viewports), which cannot verify real multi-touch, haptics, sensors or cameras.
+| Date | PC | Phone | Build | What was tested | Result |
+|------|----|-------|-------|-----------------|--------|
+| 2026-10-12 | Windows | iPhone (Safari) | `test/all-features` release package (commit `4298194`) | Server start, QR pairing over HTTPS (self-signed certificate accepted), Wii Remote connect, LED 1 lit | **works** (reported by the repository owner) |
+
+Still unverified on real phones: buttons reaching a game in Cemu, multi-touch, haptics, camera pointing, motion
+sensors and Android. Everything else is tested with Playwright mobile emulation (Pixel 7, iPhone 13 viewports),
+which cannot verify real multi-touch, haptics, sensors or cameras.

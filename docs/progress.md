@@ -20,8 +20,12 @@ Branch `feat/apriltag-tracking` (PR #3), stacked on PR #1.
 ### Tests
 - Phone: 107 unit tests and 77 Playwright e2e tests (including 4 camera tests with Chromium's fake camera).
 
+### First hardware result (2026-10-12)
+- The repository owner ran the `test/all-features` Windows package with an iPhone. Server start, QR pairing over
+  HTTPS and Wii Remote connect (LED 1) work. See `docs/compatibility.md`.
+
 ### Unverified
-- Everything on real phones: camera mode chosen, fps, latency, iOS motion permission, gyro axis signs, battery.
+- Everything else on real phones: camera mode chosen, fps, latency, iOS motion permission, gyro axis signs, battery.
 - Inside Cemu: the camera-driven pointer in a real game.
 
 ### Next
