@@ -35,9 +35,7 @@ export class InputEngine<B extends string = string> {
   // ---- state -------------------------------------------------------------------------------
 
   /** Currently pressed buttons in canonical order. Same array instance until the set changes. */
-  getButtons(): readonly B[] {
-    return this.buttons;
-  }
+  readonly getButtons = (): readonly B[] => this.buttons;
 
   isPressed(button: B): boolean {
     return this.buttons.includes(button);
@@ -53,12 +51,12 @@ export class InputEngine<B extends string = string> {
   }
 
   /** Subscribe to changes of the pressed set. Returns an unsubscribe function. */
-  subscribe(listener: () => void): () => void {
+  readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
     };
-  }
+  };
 
   // ---- mutations ---------------------------------------------------------------------------
 

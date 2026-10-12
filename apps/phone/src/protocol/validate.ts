@@ -74,7 +74,7 @@ export function validateHello(msg: unknown): string[] {
     errors.push('deviceId must be 8-64 chars of [A-Za-z0-9-]');
   }
   if ('name' in msg) {
-    if (typeof msg.name !== 'string' || [...msg.name].length > MAX_NAME_CHARS) {
+    if (typeof msg.name !== 'string' || Array.from(msg.name).length > MAX_NAME_CHARS) {
       errors.push(`name must be a string of at most ${MAX_NAME_CHARS} chars`);
     }
   }

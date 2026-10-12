@@ -83,16 +83,14 @@ export class Connection {
     this.events = events;
   }
 
-  getState(): ConnectionState {
-    return this.state;
-  }
+  readonly getState = (): ConnectionState => this.state;
 
-  subscribe(listener: () => void): () => void {
+  readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
     };
-  }
+  };
 
   /** Begin connecting (no-op if already active). */
   start(): void {
