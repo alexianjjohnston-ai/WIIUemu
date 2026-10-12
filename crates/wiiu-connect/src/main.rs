@@ -42,9 +42,10 @@ struct ServeArgs {
     /// Fixed pairing token (min. 16 chars). Random per start when omitted.
     #[arg(long, env = "WIIU_CONNECT_TOKEN")]
     token: Option<String>,
-    /// Directory with the built phone app.
-    #[arg(long, default_value = "apps/phone/dist")]
-    web_dir: PathBuf,
+    /// Directory with the built phone app. Default: `web/` next to the executable (release packages),
+    /// then `apps/phone/dist` (source checkout).
+    #[arg(long)]
+    web_dir: Option<PathBuf>,
     /// Additional allowed WebSocket origin, e.g. http://localhost:5173 for the Vite dev server.
     #[arg(long = "allow-origin")]
     allowed_origins: Vec<String>,
@@ -75,7 +76,7 @@ struct ProfileArgs {
     /// Cemu's controllerProfiles directory. Defaults to the first existing standard location.
     #[arg(long)]
     dir: Option<PathBuf>,
-    /// Folder containing Cemu.exe (used to find portable installs).
+    /// Cemu folder (Windows/Linux) or Cemu.app (macOS), used to find portable installs.
     #[arg(long)]
     cemu_dir: Option<PathBuf>,
     /// Wii Remote players to write (1-3).
@@ -115,16 +116,18 @@ async fn main() -> anyhow::Result<()> {
 
 async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
-    let web_dir = args
-        .web_dir
-        .join("index.html")
-        .is_file()
-        .then_some(args.web_dir.clone());
+    let candidates: Vec<PathBuf> = match &args.web_dir {
+        Some(dir) => vec![dir.clone()],
+        None => std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|d| d.join("web")))
+            .into_iter()
+            .chain([PathBuf::from("apps/phone/dist")])
+            .collect(),
+    };
+    let web_dir = candidates.iter().find(|d| d.join("index.html").is_file()).cloned();
     if web_dir.is_none() {
-        tracing::warn!(
-            "phone app not found in {} – build apps/phone or pass --web-dir",
-            args.web_dir.display()
-        );
+        tracing::warn!("phone app not found (looked in {candidates:?}) – build apps/phone or pass --web-dir");
     }
     let (running, task) = wiiu_connect::start(
         ServerConfig {
