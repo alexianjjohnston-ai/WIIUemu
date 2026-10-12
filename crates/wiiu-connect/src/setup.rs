@@ -283,6 +283,7 @@ impl Setup {
 
     fn download_and_install(&self) -> Result<String, SetupError> {
         let agent = ureq::AgentBuilder::new()
+            .tls_config(tls_config())
             .try_proxy_from_env(true)
             .timeout_connect(std::time::Duration::from_secs(15))
             .user_agent(concat!("wiiu-connect/", env!("CARGO_PKG_VERSION")))
@@ -359,6 +360,28 @@ impl Setup {
         install::assign_wiimotes(&install)?;
         Ok(release.tag_name)
     }
+}
+
+/// TLS roots for the Cemu download: the OS certificate store (so HTTPS-inspecting antivirus or company proxies
+/// the user's PC already trusts keep working) plus the bundled Mozilla roots as a fallback.
+fn tls_config() -> Arc<rustls::ClientConfig> {
+    crate::tls::install_crypto_provider();
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let native = rustls_native_certs::load_native_certs();
+    for e in &native.errors {
+        tracing::debug!("skipping an OS certificate: {e}");
+    }
+    let (added, _ignored) = roots.add_parsable_certificates(native.certs);
+    tracing::debug!(
+        "TLS roots: {} bundled + {added} from the OS",
+        webpki_roots::TLS_SERVER_ROOTS.len()
+    );
+    Arc::new(
+        rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth(),
+    )
 }
 
 #[derive(Debug, Deserialize)]
