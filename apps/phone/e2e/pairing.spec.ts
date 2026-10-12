@@ -12,6 +12,18 @@ test.describe('pairing and connection', () => {
     expect(hello?.deviceId).toMatch(DEVICE_ID_RE);
   });
 
+  test('production build ignores ?server= and only connects to the page origin', async ({ page }) => {
+    const urls: string[] = [];
+    await page.routeWebSocket(/.*/, (ws) => {
+      urls.push(ws.url());
+      void ws.close();
+    });
+    await page.goto('/?token=qr-token-abc&server=attacker.example:9999');
+    await page.getByRole('button', { name: 'Connect' }).click();
+    await expect.poll(() => urls.length).toBeGreaterThan(0);
+    for (const url of urls) expect(new URL(url).host).toBe(new URL(page.url()).host);
+  });
+
   test('keeps the same deviceId across reloads', async ({ page, server }) => {
     await connectAsWiimote(page);
     await expect.poll(() => server.hellos.length).toBe(1);

@@ -14,7 +14,9 @@ export function App() {
     const params = readLaunchParams(window.location.search);
     return {
       ...params,
-      url: resolveWsUrl(window.location, params.server),
+      // `?server=` is a dev-server convenience only. Production builds are served by the PC itself, and honouring
+      // the override there would let a crafted link send the pairing token to another host.
+      url: resolveWsUrl(window.location, import.meta.env.DEV ? params.server : null),
     };
   }, []);
   // Token from the QR code wins; otherwise the last one used (installed PWAs start without ?token=).

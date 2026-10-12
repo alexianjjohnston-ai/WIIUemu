@@ -1,4 +1,5 @@
-// URL handling: `?token=` (pairing token from the PC's QR code) and `?server=` (dev override).
+// URL handling: `?token=` (pairing token from the PC's QR code) and `?server=` (override honoured only by the
+// Vite dev server, see App.tsx).
 
 export interface LaunchParams {
   token: string | null;
