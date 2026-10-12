@@ -288,34 +288,23 @@ impl Setup {
             .timeout_connect(std::time::Duration::from_secs(15))
             .user_agent(concat!("wiiu-connect/", env!("CARGO_PKG_VERSION")))
             .build();
-        let release: Release = agent
-            .get(RELEASES_API)
-            .set("Accept", "application/vnd.github+json")
-            .call()
-            .map_err(|e| SetupError::Other(format!("couldn't reach GitHub: {e}")))?
-            .into_json()?;
-        let asset = pick_asset(self.platform, &release.assets)
-            .ok_or_else(|| {
-                SetupError::Other(format!(
-                    "no {} download in Cemu {}",
-                    platform_name(self.platform),
-                    release.tag_name
-                ))
-            })?
-            .clone();
-        if !asset.browser_download_url.starts_with(RELEASE_URL_PREFIX) || asset.size > MAX_DOWNLOAD_BYTES {
+        let asset = self.resolve_download(&agent)?;
+        if !asset.url.starts_with(RELEASE_URL_PREFIX) || asset.size.is_some_and(|s| s > MAX_DOWNLOAD_BYTES) {
             return Err(SetupError::Other("unexpected Cemu download".into()));
         }
 
         let downloads = self.cfg.data_dir.join("downloads");
         std::fs::create_dir_all(&downloads)?;
         let file = downloads.join(&asset.name).with_extension("part");
-        let total = Some(asset.size);
-        self.set_phase(&format!("Downloading {}", asset.name), 0, total);
+        self.set_phase(&format!("Downloading {}", asset.name), 0, asset.size);
         let resp = agent
-            .get(&asset.browser_download_url)
+            .get(&asset.url)
             .call()
             .map_err(|e| SetupError::Other(format!("download failed: {e}")))?;
+        let expected = asset
+            .size
+            .or_else(|| resp.header("content-length").and_then(|v| v.parse().ok()));
+        let total = expected;
         let mut reader = resp.into_reader().take(MAX_DOWNLOAD_BYTES + 1);
         let mut out = std::fs::File::create(&file)?;
         let mut buf = vec![0u8; 256 * 1024];
@@ -334,10 +323,9 @@ impl Setup {
         }
         out.sync_all()?;
         drop(out);
-        if received != asset.size {
+        if let Some(expected) = expected.filter(|&e| e != received) {
             return Err(SetupError::Other(format!(
-                "download incomplete ({received} of {} bytes)",
-                asset.size
+                "download incomplete ({received} of {expected} bytes)"
             )));
         }
 
@@ -349,7 +337,7 @@ impl Setup {
             Platform::MacOs => unreachable!("checked in start_download"),
         }
         let _ = std::fs::remove_file(&file);
-        std::fs::write(target.join(".wiiu-connect-version"), &release.tag_name)?;
+        std::fs::write(target.join(".wiiu-connect-version"), &asset.tag)?;
         {
             let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
             saved.cemu_dir = Some(target.clone());
@@ -358,7 +346,56 @@ impl Setup {
         // A fresh managed install has no controller setup yet: point Controllers 2–4 at the phones.
         let install = CemuInstall::find(&target, self.platform, &Self::env).ok_or(SetupError::NotCemu(target))?;
         install::assign_wiimotes(&install)?;
-        Ok(release.tag_name)
+        Ok(asset.tag)
+    }
+
+    /// Finds the latest release file for this platform. Asks GitHub's API first; if that is refused (it allows
+    /// only 60 unauthenticated requests per hour per IP), reads the latest version from the release page's
+    /// redirect and builds the official file name from it.
+    fn resolve_download(&self, agent: &ureq::Agent) -> Result<Download, SetupError> {
+        let api = agent
+            .get(RELEASES_API)
+            .set("Accept", "application/vnd.github+json")
+            .call()
+            .map_err(|e| e.to_string())
+            .and_then(|r| r.into_json::<Release>().map_err(|e| e.to_string()));
+        match api {
+            Ok(release) => {
+                let asset = pick_asset(self.platform, &release.assets).ok_or_else(|| {
+                    SetupError::Other(format!(
+                        "no {} download in Cemu {}",
+                        platform_name(self.platform),
+                        release.tag_name
+                    ))
+                })?;
+                Ok(Download {
+                    tag: release.tag_name.clone(),
+                    name: asset.name.clone(),
+                    url: asset.browser_download_url.clone(),
+                    size: Some(asset.size),
+                })
+            }
+            Err(api_error) => {
+                tracing::info!("GitHub API unavailable ({api_error}); using the release page instead");
+                let no_redirects = ureq::AgentBuilder::new()
+                    .tls_config(tls_config())
+                    .try_proxy_from_env(true)
+                    .redirects(0)
+                    .user_agent(concat!("wiiu-connect/", env!("CARGO_PKG_VERSION")))
+                    .build();
+                let resp = no_redirects
+                    .get(RELEASES_PAGE)
+                    .call()
+                    .map_err(|e| SetupError::Other(format!("couldn't reach GitHub: {e}")))?;
+                let tag = resp
+                    .header("location")
+                    .and_then(tag_from_release_location)
+                    .ok_or_else(|| SetupError::Other(format!("couldn't find the latest Cemu version ({api_error})")))?;
+                fallback_download(self.platform, &tag).ok_or_else(|| {
+                    SetupError::Other(format!("no {} download in Cemu {tag}", platform_name(self.platform)))
+                })
+            }
+        }
     }
 }
 
@@ -395,6 +432,41 @@ pub struct Asset {
     pub name: String,
     pub browser_download_url: String,
     pub size: u64,
+}
+
+/// A release file to download.
+#[derive(Debug, Clone, PartialEq)]
+struct Download {
+    tag: String,
+    name: String,
+    url: String,
+    /// Known when the API answered; otherwise taken from `Content-Length`.
+    size: Option<u64>,
+}
+
+/// `https://github.com/cemu-project/Cemu/releases/tag/v2.6` → `v2.6` (tags are short and plain).
+fn tag_from_release_location(location: &str) -> Option<String> {
+    let tag = location.split("/releases/tag/").nth(1)?.trim_end_matches('/');
+    let ok =
+        !tag.is_empty() && tag.len() <= 40 && tag.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b));
+    ok.then(|| tag.to_string())
+}
+
+/// Official file names (Cemu's .github/workflows/deploy_release.yml): `cemu-<ver>-windows-x64.zip`,
+/// `Cemu-<ver>-x86_64.AppImage`, where `<ver>` is the tag without its leading `v`.
+fn fallback_download(platform: Platform, tag: &str) -> Option<Download> {
+    let ver = tag.strip_prefix('v').unwrap_or(tag);
+    let name = match platform {
+        Platform::Windows => format!("cemu-{ver}-windows-x64.zip"),
+        Platform::Linux => format!("Cemu-{ver}-x86_64.AppImage"),
+        Platform::MacOs => return None,
+    };
+    Some(Download {
+        tag: tag.to_string(),
+        url: format!("{RELEASE_URL_PREFIX}{tag}/{name}"),
+        name,
+        size: None,
+    })
 }
 
 /// The release file for this platform: the portable Windows zip (not the installer) or the Linux AppImage.
@@ -547,6 +619,32 @@ mod tests {
             browser_download_url: format!("{RELEASE_URL_PREFIX}v2.6/{name}"),
             size: 1,
         }
+    }
+
+    #[test]
+    fn fallback_builds_official_urls_from_the_release_redirect() {
+        assert_eq!(
+            tag_from_release_location("https://github.com/cemu-project/Cemu/releases/tag/v2.6").as_deref(),
+            Some("v2.6")
+        );
+        assert_eq!(
+            tag_from_release_location("https://evil.example/releases/tag/v1/../../x"),
+            None
+        );
+        assert_eq!(
+            tag_from_release_location("https://github.com/cemu-project/Cemu/releases"),
+            None
+        );
+        let d = fallback_download(Platform::Windows, "v2.6").unwrap();
+        assert_eq!(
+            d.url,
+            "https://github.com/cemu-project/Cemu/releases/download/v2.6/cemu-2.6-windows-x64.zip"
+        );
+        assert_eq!(
+            fallback_download(Platform::Linux, "v2.6").unwrap().name,
+            "Cemu-2.6-x86_64.AppImage"
+        );
+        assert!(fallback_download(Platform::MacOs, "v2.6").is_none());
     }
 
     #[test]
