@@ -1,0 +1,16 @@
+{
+  "name": "Wii U Connect",
+  "short_name": "Wii U Connect",
+  "description": "Use your phone as a Wii Remote for the Cemu emulator.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#eaf1f6",
+  "theme_color": "#eaf1f6",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

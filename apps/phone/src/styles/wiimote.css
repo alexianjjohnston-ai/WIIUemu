@@ -1,0 +1,586 @@
+/* Wii Remote controller screen.
+ * Sizing: the remote body is a size container. Every control is sized as
+ *   min(<share of body width>, <share of body height>) * --scale
+ * so the layout always fits the screen; the height shares sum to well under 100% even at 1.4x. */
+
+.wm-screen {
+  --scale: 1;
+  --plastic: #fbfcfd;
+  --plastic-edge: #e3e8ec;
+  --cap: #f1f4f6;
+  --cap-edge: #d5dce2;
+  --cap-ink: #8a96a0;
+  --pressed: #c9eefc;
+
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.wm-screen[data-layout='authentic'] {
+  --body-ratio: 0.3;
+  --bzone-w: clamp(56px, 17vw, 84px);
+  --hit-pad: min(1.5cqw, 0.5cqh);
+  --row-gap: 7cqw;
+  /* control sizes: share of body width / share of body height */
+  --dpad-w: 80cqw;
+  --dpad-h: 20cqh;
+  --a-w: 52cqw;
+  --a-h: 13cqh;
+  --small-w: 22cqw;
+  --small-h: 6cqh;
+  --num-w: 34cqw;
+  --num-h: 8cqh;
+  /* largest scale the height shares can take and still fit (see layout.spec.ts) */
+  --smax: 1.4;
+}
+
+.wm-screen[data-layout='comfort'] {
+  --body-ratio: 0.46;
+  --bzone-w: clamp(76px, 25vw, 124px);
+  --hit-pad: min(3cqw, 1cqh);
+  --row-gap: 6cqw;
+  --dpad-w: 68cqw;
+  --dpad-h: 22cqh;
+  --a-w: 44cqw;
+  --a-h: 14cqh;
+  --small-w: 20cqw;
+  --small-h: 7cqh;
+  --num-w: 30cqw;
+  --num-h: 9cqh;
+  --smax: 1.2;
+}
+
+/* Size of a control = min(width share * scale, height share * min(scale, smax)). */
+.wm-dpad {
+  --size: min(var(--dpad-w) * var(--scale), var(--dpad-h) * min(var(--scale), var(--smax)));
+}
+
+.wm-a {
+  --size: min(var(--a-w) * var(--scale), var(--a-h) * min(var(--scale), var(--smax)));
+}
+
+.wm-small {
+  --size: min(var(--small-w) * var(--scale), var(--small-h) * min(var(--scale), var(--smax)));
+}
+
+.wm-num {
+  --size: min(var(--num-w) * var(--scale), var(--num-h) * min(var(--scale), var(--smax)));
+}
+
+/* ---- top bar ---------------------------------------------------------------------------------- */
+
+.topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: calc(48px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 12px 0;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.75);
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--warn);
+}
+
+.status-pill[data-status='connected'] .status-dot {
+  background: var(--ok);
+}
+
+.status-pill[data-status='failed'] .status-dot,
+.status-pill[data-status='idle'] .status-dot {
+  background: var(--danger);
+}
+
+.status-pill[data-status='connecting'] .status-dot,
+.status-pill[data-status='reconnecting'] .status-dot {
+  animation: blink 1s ease-in-out infinite;
+}
+
+.notice-slot {
+  position: absolute;
+  top: calc(52px + env(safe-area-inset-top));
+  left: 12px;
+  right: 12px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.notice-slot .notice {
+  pointer-events: auto;
+}
+
+/* ---- main area -------------------------------------------------------------------------------- */
+
+.wm-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  padding: 6px 10px max(12px, env(safe-area-inset-bottom));
+}
+
+.wm-screen[data-hand='left'] .wm-main {
+  flex-direction: row-reverse;
+}
+
+.wm-body-col {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  container-type: size;
+}
+
+/* ---- the remote body ---------------------------------------------------------------------------- */
+
+.wm-remote {
+  height: 100cqh;
+  width: min(100cqw, 100cqh * var(--body-ratio));
+  container-type: size;
+  border-radius: min(32cqw, 60px) / min(20cqw, 48px);
+  background:
+    linear-gradient(90deg, rgb(0 0 0 / 0.06), transparent 14%, transparent 80%, rgb(0 0 0 / 0.07)),
+    linear-gradient(180deg, #ffffff, var(--plastic) 60%, #f2f5f7);
+  box-shadow:
+    0 14px 34px rgb(30 50 70 / 0.22),
+    0 2px 4px rgb(30 50 70 / 0.12),
+    inset 0 2px 0 #fff,
+    inset 0 -3px 6px rgb(0 0 0 / 0.05);
+  border: 1px solid var(--plastic-edge);
+}
+
+.wm-remote-inner {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-evenly;
+  padding: 5cqw 0 9cqw;
+  overflow: hidden;
+}
+
+.wm-top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2.5cqw;
+  flex: none;
+}
+
+.wm-power {
+  width: min(16cqw, 4.2cqh);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--cap);
+  box-shadow:
+    inset 0 -2px 3px rgb(0 0 0 / 0.08),
+    0 1px 2px rgb(0 0 0 / 0.15);
+}
+
+.wm-power-icon {
+  width: 62%;
+  height: 62%;
+  fill: none;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke: var(--danger);
+}
+
+.wm-power--connected .wm-power-icon {
+  stroke: var(--led-on);
+}
+
+.wm-power--connecting .wm-power-icon {
+  stroke: var(--warn);
+  animation: blink 1s ease-in-out infinite;
+}
+
+.wm-leds {
+  display: flex;
+  gap: 4cqw;
+}
+
+.wm-led {
+  width: 9cqw;
+  height: min(4cqw, 1.3cqh);
+  border-radius: 2px;
+  background: #d5dde3;
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.15);
+}
+
+.wm-led[data-lit='true'] {
+  background: var(--led-on);
+  box-shadow:
+    0 0 6px var(--led-on),
+    0 0 2px #fff inset;
+}
+
+.wm-leds--searching .wm-led {
+  animation: led-search 1.2s ease-in-out infinite;
+}
+
+.wm-leds--searching .wm-led:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.wm-leds--searching .wm-led:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.wm-leds--searching .wm-led:nth-child(4) {
+  animation-delay: 0.45s;
+}
+
+/* ---- pressable controls ----------------------------------------------------------------------- */
+
+.wm-hit {
+  flex: none;
+  padding: var(--hit-pad);
+  touch-action: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.wm-cap {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ffffff, var(--cap));
+  color: var(--cap-ink);
+  font-weight: 700;
+  box-shadow:
+    0 2px 0 var(--cap-edge),
+    0 3px 6px rgb(0 0 0 / 0.14),
+    inset 0 1px 0 #fff;
+  transition:
+    transform 60ms,
+    box-shadow 60ms,
+    background 60ms;
+  pointer-events: none;
+}
+
+.wm-hit[data-pressed='true'] .wm-cap {
+  transform: translateY(2px) scale(0.97);
+  background: linear-gradient(180deg, var(--pressed), #e3f6fd);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--led-on) 55%, transparent),
+    inset 0 2px 5px rgb(0 0 0 / 0.18);
+  color: #157fb3;
+}
+
+.wm-glyph {
+  width: 56%;
+  height: 56%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A */
+.wm-a .wm-cap {
+  width: var(--size);
+  aspect-ratio: 1;
+  font-size: calc(var(--size) * 0.42);
+  box-shadow:
+    0 3px 0 var(--cap-edge),
+    0 5px 10px rgb(0 0 0 / 0.16),
+    inset 0 1px 0 #fff,
+    0 0 0 min(1.5cqw, 4px) #eef1f4;
+}
+
+/* − HOME + */
+.wm-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--row-gap) - 2 * var(--hit-pad));
+  flex: none;
+}
+
+.wm-small .wm-cap {
+  width: var(--size);
+  aspect-ratio: 1;
+}
+
+.wm-home .wm-cap {
+  color: #6c9fbe;
+}
+
+/* 1 / 2 */
+.wm-numbers {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2cqh;
+  flex: none;
+}
+
+.wm-num .wm-cap {
+  width: var(--size);
+  aspect-ratio: 1;
+  font-size: calc(var(--size) * 0.42);
+}
+
+/* decorative speaker grille */
+.wm-speaker {
+  flex: 0 1 auto;
+  width: 34cqw;
+  height: min(9cqw, 2.4cqh);
+  min-height: 0;
+  background: radial-gradient(circle, #c6ced5 32%, transparent 36%) 0 0 / min(5.6cqw, 1.5cqh) min(4.5cqw, 1.2cqh);
+  opacity: 0.9;
+}
+
+.wm-screen[data-layout='comfort'] .wm-speaker {
+  display: none;
+}
+
+/* ---- D-pad -------------------------------------------------------------------------------------- */
+
+.wm-dpad .wm-dpad-cross {
+  position: relative;
+  display: block;
+  width: var(--size);
+  aspect-ratio: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 0 var(--cap-edge)) drop-shadow(0 3px 4px rgb(0 0 0 / 0.15));
+}
+
+.wm-dpad-arm,
+.wm-dpad-center {
+  position: absolute;
+  background: linear-gradient(180deg, #ffffff, var(--cap));
+}
+
+.wm-dpad-arm {
+  width: 34%;
+  height: 34%;
+  transition: background 60ms;
+}
+
+.wm-dpad-arm::after {
+  /* direction arrow */
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0;
+  height: 0;
+  border: 5px solid transparent;
+}
+
+.wm-dpad-arm--up {
+  left: 33%;
+  top: 0;
+  border-radius: 14% 14% 0 0;
+}
+
+.wm-dpad-arm--up::after {
+  border-bottom-color: #b3bdc5;
+  transform: translateY(-50%);
+}
+
+.wm-dpad-arm--down {
+  left: 33%;
+  bottom: 0;
+  border-radius: 0 0 14% 14%;
+}
+
+.wm-dpad-arm--down::after {
+  border-top-color: #b3bdc5;
+  transform: translateY(50%);
+}
+
+.wm-dpad-arm--left {
+  top: 33%;
+  left: 0;
+  border-radius: 14% 0 0 14%;
+}
+
+.wm-dpad-arm--left::after {
+  border-right-color: #b3bdc5;
+  transform: translateX(-50%);
+}
+
+.wm-dpad-arm--right {
+  top: 33%;
+  right: 0;
+  border-radius: 0 14% 14% 0;
+}
+
+.wm-dpad-arm--right::after {
+  border-left-color: #b3bdc5;
+  transform: translateX(50%);
+}
+
+.wm-dpad-center {
+  left: 32.5%;
+  top: 32.5%;
+  width: 35%;
+  height: 35%;
+  background: radial-gradient(circle, #e9edf0 30%, var(--cap) 32%);
+}
+
+.wm-dpad-arm[data-pressed='true'] {
+  background: linear-gradient(180deg, var(--pressed), #b9e7fa);
+}
+
+.wm-dpad-arm[data-pressed='true']::after {
+  filter: brightness(0.6);
+}
+
+/* ---- B zone ------------------------------------------------------------------------------------ */
+
+.wm-bzone {
+  flex: none;
+  width: var(--bzone-w);
+  display: flex;
+  align-items: stretch;
+  padding: 4% 0;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.wm-bzone-grip {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding-top: 36%;
+  border-radius: 999px;
+  border: 2px solid rgb(255 255 255 / 0.9);
+  background:
+    repeating-linear-gradient(180deg, transparent 0 14px, rgb(0 0 0 / 0.035) 14px 16px),
+    linear-gradient(90deg, #e6ebef, #f8fafb 50%, #e1e7ec);
+  box-shadow:
+    0 6px 18px rgb(30 50 70 / 0.16),
+    inset 0 0 0 1px var(--plastic-edge);
+  transition:
+    background 60ms,
+    box-shadow 60ms;
+  pointer-events: none;
+}
+
+.wm-bzone-label {
+  width: 2.4em;
+  height: 2.4em;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 1.1rem;
+  color: var(--cap-ink);
+  background: #fff;
+  box-shadow: 0 2px 4px rgb(0 0 0 / 0.12);
+}
+
+.wm-bzone[data-pressed='true'] .wm-bzone-grip {
+  background:
+    repeating-linear-gradient(180deg, transparent 0 14px, rgb(0 0 0 / 0.04) 14px 16px),
+    linear-gradient(90deg, #a9e2fa, var(--pressed) 50%, #a2dcf5);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--led-on) 55%, transparent),
+    inset 0 2px 8px rgb(0 0 0 / 0.12);
+}
+
+.wm-bzone[data-pressed='true'] .wm-bzone-label {
+  color: #157fb3;
+}
+
+/* ---- settings sheet -------------------------------------------------------------------------- */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: rgb(20 30 40 / 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  touch-action: auto;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 480px;
+  max-height: 100%;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 24px 24px 0 0;
+  padding: 1rem 1.25rem max(1.25rem, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  user-select: none;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sheet-head h2 {
+  font-size: 1.15rem;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+/* ---- animation ---------------------------------------------------------------------------------- */
+
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes led-search {
+  0%,
+  100% {
+    background: #d5dde3;
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.15);
+  }
+  50% {
+    background: var(--led-on);
+    box-shadow: 0 0 5px var(--led-on);
+  }
+}

@@ -21,6 +21,9 @@ Working now, verified by automated tests but **not yet in a real game**:
   → pointer path (no Cemu patch required).
 - A phone connection server with QR pairing, slot assignment and safety rules (buttons release on disconnect or
   after 1 s without input).
+- A phone Wii Remote web app (`apps/phone`): authentic and comfort layouts, left-handed mode, button size,
+  multi-touch, and release of all buttons when the page is hidden or the connection drops. It has been tested in
+  emulated phone browsers only, not on real phones yet.
 - A mouse-driven pointer test page for testing without phones.
 - Generation of Cemu controller profiles, so you don't have to bind buttons by hand.
 
@@ -42,8 +45,9 @@ cargo run --release -p wiiu-connect
    more players.
 3. Open `http://localhost:8737/dev/pointer` on the PC and aim with the mouse. Left click is A, right click is B,
    arrows are the D-pad, and H is HOME.
-4. Phones: open `http://localhost:8737/pair` on the PC and scan the QR code. The phone app lives in `apps/phone`;
-   build it with `npm ci && npm run build`.
+4. Phones: build the phone app once (`cd apps/phone && npm ci && npm run build`), then open
+   `http://localhost:8737/pair` on the PC and scan the QR code with the phone (same Wi-Fi). Pick **Wii Remote** and
+   tap **Connect**.
 
 Without Cemu, you can watch exactly what Cemu would receive:
 `cargo run -p wiiu-connect -- probe --slot 1`.
