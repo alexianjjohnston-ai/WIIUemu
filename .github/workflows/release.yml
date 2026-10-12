@@ -4,11 +4,13 @@ name: Release
 # - Manual run (Actions → Release → Run workflow): builds packages as workflow artifacts only.
 # - Pushing a tag like v0.1.0: also creates a *draft* GitHub release with the packages attached,
 #   which the repository owner reviews and publishes.
+# - Pushing a `test/**` branch: builds packages as workflow artifacts only (for hands-on testing).
 
 on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+    branches: ["test/**"]
 
 permissions:
   contents: read
@@ -56,7 +58,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force package | Out-Null
           Copy-Item target/release/wiiu-connect.exe package/
-          Copy-Item README.md, THIRD_PARTY_NOTICES.md package/ -ErrorAction SilentlyContinue
+          Copy-Item README.md, TESTING.md, THIRD_PARTY_NOTICES.md package/ -ErrorAction SilentlyContinue
           Compress-Archive -Path package/* -DestinationPath wiiu-connect-windows-x64.zip
       - uses: actions/upload-artifact@v4
         with:
@@ -89,7 +91,7 @@ jobs:
           # Ad-hoc signature: required for arm64 executables; not a Developer ID (Gatekeeper still warns).
           codesign --force --sign - package/wiiu-connect
           lipo -info package/wiiu-connect
-          cp README.md package/
+          cp README.md TESTING.md package/
           cp THIRD_PARTY_NOTICES.md package/ 2>/dev/null || true
           ditto -c -k --sequesterRsrc package wiiu-connect-macos-universal.zip
       - uses: actions/upload-artifact@v4
