@@ -2,9 +2,16 @@
 // Used by unit tests and by the e2e mock server to prove every frame the phone sends is valid.
 
 import {
+  CAMERA_FRAME_HEADER_BYTES,
+  CAMERA_HEIGHT_RANGE,
+  CAMERA_WIDTH_RANGE,
   GAMEPAD_BUTTONS,
   MAX_BUTTONS,
+  MAX_CAMERA_PAYLOAD_BYTES,
   MAX_FRAME_BYTES,
+  MAX_GYRO_RAD_S,
+  MAX_GYRO_SAMPLES,
+  MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   WIIMOTE_BUTTONS,
   type Role,
@@ -67,7 +74,9 @@ export function validateHello(msg: unknown): string[] {
   if (!isObject(msg)) return ['hello must be an object'];
   checkKeys(msg, ['type', 'protocol', 'token', 'role', 'deviceId', 'name'], errors, 'hello');
   if (msg.type !== 'hello') errors.push('type must be "hello"');
-  if (msg.protocol !== PROTOCOL_VERSION) errors.push(`protocol must equal ${PROTOCOL_VERSION}`);
+  if (!Number.isInteger(msg.protocol) || (msg.protocol as number) < MIN_PROTOCOL_VERSION || (msg.protocol as number) > PROTOCOL_VERSION) {
+    errors.push(`protocol must be an integer from ${MIN_PROTOCOL_VERSION} to ${PROTOCOL_VERSION}`);
+  }
   if (typeof msg.token !== 'string' || msg.token.length === 0) errors.push('token must be a non-empty string');
   if (msg.role !== 'wiimote' && msg.role !== 'gamepad') errors.push('role must be "wiimote" or "gamepad"');
   if (typeof msg.deviceId !== 'string' || !DEVICE_ID_RE.test(msg.deviceId)) {
@@ -139,6 +148,51 @@ export function validatePing(msg: unknown): string[] {
   return errors;
 }
 
+/** Protocol 2 `gyro`. `lastT` is the last timestamp sent earlier on the same connection. */
+export function validateGyro(msg: unknown, lastT: number | null = null): string[] {
+  if (!isObject(msg)) return ['gyro must be an object'];
+  const errors: string[] = [];
+  checkKeys(msg, ['type', 'samples'], errors, 'gyro');
+  if (msg.type !== 'gyro') errors.push('type must be "gyro"');
+  if (!Array.isArray(msg.samples) || msg.samples.length < 1 || msg.samples.length > MAX_GYRO_SAMPLES) {
+    return [...errors, `samples must be an array of 1-${MAX_GYRO_SAMPLES} entries`];
+  }
+  let prev = lastT;
+  const samples: unknown[] = msg.samples;
+  for (const [i, sample] of samples.entries()) {
+    if (!Array.isArray(sample) || sample.length !== 4 || !sample.every(isFiniteNumber)) {
+      errors.push(`samples[${i}] must be [t_us, x, y, z] of finite numbers`);
+      continue;
+    }
+    const [t, ...rates] = sample;
+    if (t === undefined || !Number.isSafeInteger(t) || t < 0) errors.push(`samples[${i}] t_us must be an integer >= 0`);
+    else if (prev !== null && t <= prev) errors.push(`samples[${i}] t_us must strictly increase`);
+    else prev = t;
+    if (rates.some((r) => Math.abs(r) > MAX_GYRO_RAD_S)) errors.push(`samples[${i}] rate exceeds ${MAX_GYRO_RAD_S} rad/s`);
+  }
+  return errors;
+}
+
+/** Protocol 2 binary `camera_frame`: checks the header and the payload size (not the JPEG itself). */
+export function validateCameraFrame(bytes: Uint8Array, lastSeq: number | null = null): string[] {
+  if (bytes.length < CAMERA_FRAME_HEADER_BYTES) return ['camera frame shorter than its header'];
+  const errors: string[] = [];
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint8(0) !== 1) errors.push('kind must be 1');
+  if (view.getUint8(1) !== 1) errors.push('format must be 1 (JPEG)');
+  const w = view.getUint16(2, true);
+  const h = view.getUint16(4, true);
+  if (w < CAMERA_WIDTH_RANGE[0] || w > CAMERA_WIDTH_RANGE[1]) errors.push(`width ${w} out of range`);
+  if (h < CAMERA_HEIGHT_RANGE[0] || h > CAMERA_HEIGHT_RANGE[1]) errors.push(`height ${h} out of range`);
+  if (view.getUint16(6, true) !== 0) errors.push('reserved must be 0');
+  const seq = view.getUint32(8, true);
+  if (lastSeq !== null && seq <= lastSeq) errors.push('seq must strictly increase');
+  if (view.getBigUint64(12, true) > BigInt(Number.MAX_SAFE_INTEGER)) errors.push('capture_us exceeds 2^53');
+  const payload = bytes.length - CAMERA_FRAME_HEADER_BYTES;
+  if (payload === 0 || payload > MAX_CAMERA_PAYLOAD_BYTES) errors.push(`payload is ${payload} bytes`);
+  return errors;
+}
+
 /**
  * Validates any client frame (as sent on the wire). Returns a list of errors; empty means valid.
  * `role` is needed to check `input.buttons`.
@@ -159,6 +213,8 @@ export function validateClientFrame(text: string, role: Role): string[] {
       return [...errors, ...validateInput(msg, role)];
     case 'ping':
       return [...errors, ...validatePing(msg)];
+    case 'gyro':
+      return [...errors, ...validateGyro(msg)];
     default:
       return [...errors, `unknown type ${JSON.stringify(type)}`];
   }
@@ -196,6 +252,20 @@ export function parseServerMessage(text: string): ServerMessage | null {
       return typeof msg.code === 'string'
         ? { type: 'error', code: msg.code, message: typeof msg.message === 'string' ? msg.message : '' }
         : null;
+    case 'tracking': {
+      const p = msg.pointer;
+      // The tracked aim point may lie outside [0,1] when the phone points beside the TV.
+      const pointer = isObject(p) && isFiniteNumber(p.x) && isFiniteNumber(p.y) ? { x: p.x, y: p.y } : null;
+      if (
+        (msg.state === 'tracking' || msg.state === 'gyro_only' || msg.state === 'lost') &&
+        (p === null || pointer !== null) &&
+        Number.isInteger(msg.tags) &&
+        isFiniteNumber(msg.fixes_per_s)
+      ) {
+        return { type: 'tracking', state: msg.state, pointer, tags: msg.tags as number, fixes_per_s: msg.fixes_per_s };
+      }
+      return null;
+    }
     default:
       return null;
   }

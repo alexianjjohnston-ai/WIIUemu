@@ -78,7 +78,8 @@ describe('validateHello', () => {
   });
 
   it.each([
-    ['protocol 2', { ...okHello, protocol: 2 }],
+    ['protocol 3', { ...okHello, protocol: 3 }],
+    ['protocol 0', { ...okHello, protocol: 0 }],
     ['empty token', { ...okHello, token: '' }],
     ['bad role', { ...okHello, role: 'nunchuk' }],
     ['short deviceId', { ...okHello, deviceId: 'abc' }],

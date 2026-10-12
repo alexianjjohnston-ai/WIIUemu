@@ -1,7 +1,10 @@
-// Types for the phone <-> PC WebSocket protocol (version 1).
+// Types for the phone <-> PC WebSocket protocol (version 2 = version 1 + camera tracking).
 // Source of truth: docs/controller-protocol.md. Do not change shapes here without changing the spec.
 
-export const PROTOCOL_VERSION = 1;
+/** Version this app sends in `hello`. */
+export const PROTOCOL_VERSION = 2;
+/** Oldest version the app still accepts in `welcome` (camera tracking is off on version 1). */
+export const MIN_PROTOCOL_VERSION = 1;
 
 /** Server closes the connection on frames larger than this (bytes). */
 export const MAX_FRAME_BYTES = 4096;
@@ -63,7 +66,7 @@ export interface Motion {
 
 export interface HelloMessage {
   type: 'hello';
-  protocol: typeof PROTOCOL_VERSION;
+  protocol: number;
   token: string;
   role: Role;
   deviceId: string;
@@ -85,7 +88,21 @@ export interface PingMessage {
   id: number;
 }
 
-export type ClientMessage = HelloMessage | InputMessage | PingMessage;
+/** Protocol 2: gyro batch. Each sample is `[t_us, x, y, z]`, rates in rad/s in the W3C device frame. */
+export interface GyroMessage {
+  type: 'gyro';
+  samples: [number, number, number, number][];
+}
+
+export type ClientMessage = HelloMessage | InputMessage | PingMessage | GyroMessage;
+
+/** Protocol 2 limits for `gyro` and binary `camera_frame` messages. */
+export const MAX_GYRO_SAMPLES = 64;
+export const MAX_GYRO_RAD_S = 35;
+export const CAMERA_FRAME_HEADER_BYTES = 20;
+export const MAX_CAMERA_PAYLOAD_BYTES = 65_536;
+export const CAMERA_WIDTH_RANGE = [160, 1280] as const;
+export const CAMERA_HEIGHT_RANGE = [120, 960] as const;
 
 export const ERROR_CODES = [
   'bad_token',
@@ -117,4 +134,15 @@ export interface ErrorMessage {
   message: string;
 }
 
-export type ServerMessage = WelcomeMessage | PongMessage | ErrorMessage;
+export type TrackingState = 'tracking' | 'gyro_only' | 'lost';
+
+/** Protocol 2: camera-tracking feedback, about 10 Hz while frames arrive. */
+export interface TrackingMessage {
+  type: 'tracking';
+  state: TrackingState;
+  pointer: Vec2 | null;
+  tags: number;
+  fixes_per_s: number;
+}
+
+export type ServerMessage = WelcomeMessage | PongMessage | ErrorMessage | TrackingMessage;

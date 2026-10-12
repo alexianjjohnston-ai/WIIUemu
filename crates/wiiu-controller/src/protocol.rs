@@ -402,6 +402,22 @@ pub fn encode_camera_frame(width: u16, height: u16, seq: u32, capture_us: u64, j
 mod tests {
     use super::*;
 
+    /// Same golden bytes as `apps/phone/src/tracking/tracking.test.ts`, so both encoders stay in step.
+    #[test]
+    fn camera_frame_golden_bytes_match_phone_encoder() {
+        let jpeg = [0xff, 0xd8, 0xff, 0xd9];
+        let bytes = encode_camera_frame(640, 360, 0x0102_0304, 0x01_0203_0405, &jpeg);
+        assert_eq!(
+            bytes[..20],
+            [1, 1, 0x80, 0x02, 0x68, 0x01, 0, 0, 0x04, 0x03, 0x02, 0x01, 0x05, 0x04, 0x03, 0x02, 0x01, 0, 0, 0]
+        );
+        let f = parse_camera_frame(&bytes).unwrap();
+        assert_eq!(
+            (f.width, f.height, f.seq, f.capture_us, f.jpeg),
+            (640, 360, 0x0102_0304, 0x01_0203_0405, &jpeg[..])
+        );
+    }
+
     fn input(json: &str) -> RawInput {
         match parse_client_message(json).unwrap() {
             ClientMessage::Input(i) => i,
