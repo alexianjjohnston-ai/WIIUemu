@@ -336,7 +336,7 @@ async fn https_listener_serves_phones_with_self_signed_cert() {
 fn border_jpeg(w: usize, h: usize) -> Vec<u8> {
     use wiiu_tracking::{BorderConfig, MarkerLayout};
     let layout = MarkerLayout::border(&BorderConfig::default());
-    let scale = h as f64 * 0.7;
+    let scale = h as f64 * 0.55; // the whole border (tags are 0.20 of the game height) fits the frame
     let ox = w as f64 / 2.0 - layout.aspect * scale / 2.0;
     let oy = h as f64 / 2.0 - scale / 2.0;
     let to_px = |x: f64, y: f64| (ox + x * layout.aspect * scale, oy + y * scale);

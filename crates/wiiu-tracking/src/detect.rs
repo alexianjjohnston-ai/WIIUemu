@@ -61,7 +61,18 @@ impl TagDetector {
     /// tag36h11 with 1-bit error correction (keeps false positives very low at TV-border sizes), one thread,
     /// upstream default decimation (2.0).
     pub fn new() -> Result<Self, DetectError> {
-        let detector = wiiu_apriltag_sys::Detector::tag36h11(1, 2.0).ok_or(DetectError::Setup)?;
+        Self::with_decimate(2.0)
+    }
+
+    /// Like [`TagDetector::new`] with a custom quad decimation (1.0 = full resolution: finds smaller tags,
+    /// costs more CPU).
+    pub fn with_decimate(quad_decimate: f32) -> Result<Self, DetectError> {
+        Self::with_options(quad_decimate, 1)
+    }
+
+    /// Custom quad decimation and worker threads (the AprilTag library parallelises one frame across them).
+    pub fn with_options(quad_decimate: f32, threads: u8) -> Result<Self, DetectError> {
+        let detector = wiiu_apriltag_sys::Detector::tag36h11(threads, quad_decimate).ok_or(DetectError::Setup)?;
         Ok(Self { detector })
     }
 
