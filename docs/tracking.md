@@ -59,6 +59,36 @@ Real phones, real TVs, lighting and motion blur are still unmeasured.
 
 ![Phone camera pointing](images/phone-camera-tracking.png)
 
+## First real-phone feedback and fixes (2026-10-12)
+
+The repository owner tried camera pointing with an iPhone on Windows. It "works, but poorly": jittery, laggy,
+often lost, and sometimes moving in the wrong direction, at 10–20 fixes/s.
+
+**Root cause of the losses, measured** with `crates/wiiu-tracking/tests/realistic.rs`. That benchmark renders the
+border as a portrait phone camera sees it, 0.8–2.5 m from a monitor with a 0.5 m game area, adding perspective,
+blur, sensor noise and JPEG compression. With the phone upright, the monitor spans the frame's *short* side:
+
+| Setup | 0.8 m | 1.2 m | 1.8 m | 2.5 m | Detect time |
+|-------|-------|-------|-------|-------|-------------|
+| Before: 360×640 frames, tags 0.10, decimate 2 | 5.9 tags | **0** | **0** | **0** | 9 ms |
+| After: 540×960 frames, tags 0.20, decimate 1.5, 4 threads | 4 tags | 10 | 10 | 9.8 | 17 ms |
+
+So beyond about 1 m every tag vanished. The fixes:
+- **Range:** frames grow from 640 to 960 px on the long side, tags from 10% to 20% of the game height, and the PC
+  detector uses decimation 1.5 on up to 4 threads.
+- **Wrong direction / lag:** the tracker now checks the gyro against the camera. For each pair of consecutive
+  fixes it compares what the gyro alone predicted with what the camera then saw, and fits a 2×2 map from those
+  samples. The map corrects swapped axes, flipped signs and wrong scales, or becomes zero (the pointer then holds
+  between fixes) when the gyro predicts nothing. This matters because phone sensor conventions can't be verified
+  without each phone.
+  - Synthetic tests: a phone reporting flipped yaw at 3× scale is learned as about −0.31/+0.35 (ideal ±0.33).
+    Prediction error drops from 6.2% to 0.17% of the screen.
+- **Jitter:** a One Euro filter smooths the pointer (strong smoothing when still, little lag when moving fast).
+- **Diagnostics:** `/tracking` shows per player the frame size, frames/s, fixes/s, tags, detection time, gyro
+  samples/s and the learned gyro map. A screenshot of it is the most useful bug report.
+
+Still to verify on the real iPhone.
+
 ## Decision: detection runs on the PC
 
 See [ADR-0001](adr/0001-apriltag-detection-on-pc.md). The native AprilTag detector found all 10 rendered tags (IDs

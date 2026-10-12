@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Camera pointing, after the first real-phone test:
+  - Range: frames are now up to 960 px, tags 20% of the game height, and detection runs at 1.5× decimation on up to
+    4 threads. Tags no longer vanish beyond about 1 m.
+  - The gyro is checked online against the camera (corrects swapped or flipped axes and wrong scale, or is ignored
+    when it doesn't help).
+  - The pointer is smoothed with a One Euro filter.
+  - `/tracking` shows tracking diagnostics per player.
+
 ### Security
 - Server (QA review fixes):
   - Pad updates are published under the session lock, so a tracking worker can't leave a button held after a
