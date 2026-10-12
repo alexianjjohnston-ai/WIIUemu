@@ -18,6 +18,8 @@ use wiiu_controller::protocol::MAX_CAMERA_FRAME_BYTES;
 pub struct AppState {
     pub sessions: Arc<SessionManager>,
     pub config: Arc<HttpConfig>,
+    /// The PC-side setup assistant (`/setup`); `None` disables it.
+    pub setup: Option<Arc<crate::setup::Setup>>,
 }
 
 pub struct HttpConfig {
@@ -25,8 +27,10 @@ pub struct HttpConfig {
     pub phone_base_url: String,
     /// Extra origins allowed to open `/ws` (e.g. a Vite dev server). Same-origin is always allowed.
     pub allowed_origins: Vec<String>,
-    /// Built phone web app (`apps/phone/dist`).
+    /// Built phone web app on disk (`apps/phone/dist`); takes precedence over the embedded copy.
     pub web_dir: Option<PathBuf>,
+    /// Serve the phone app compiled into the executable when there is no `web_dir`.
+    pub embedded_web: bool,
 }
 
 impl HttpConfig {
@@ -42,7 +46,9 @@ pub fn router(state: AppState) -> Router {
         .route("/dev/pointer", get(dev_pointer_page))
         .route("/api/status", get(status))
         .route("/tracking", get(tracking_page))
-        .route("/api/tracking/layout", get(tracking_layout));
+        .route("/api/tracking/layout", get(tracking_layout))
+        .merge(crate::setup_http::routes());
+    app = app.route("/", get(root));
     app = match state.config.web_dir.clone().filter(|d| d.join("index.html").is_file()) {
         Some(dir) => {
             let index = dir.join("index.html");
@@ -50,7 +56,8 @@ pub fn router(state: AppState) -> Router {
                 tower_http::services::ServeDir::new(dir).fallback(tower_http::services::ServeFile::new(index)),
             )
         }
-        None => app.route("/", get(no_web_app)),
+        None if state.config.embedded_web && crate::embedded::available() => app.fallback(crate::embedded::serve),
+        None => app,
     };
     app.with_state(state)
 }
@@ -102,7 +109,7 @@ async fn ws_upgrade(
 }
 
 /// `Some(403 response)` unless the request is local (see [`is_local_request`]).
-fn reject_remote(peer: SocketAddr, headers: &HeaderMap) -> Option<Response> {
+pub(crate) fn reject_remote(peer: SocketAddr, headers: &HeaderMap) -> Option<Response> {
     (!is_local_request(peer, headers)).then(|| {
         (
             StatusCode::FORBIDDEN,
@@ -207,6 +214,28 @@ async fn tracking_layout() -> Json<LayoutResponse> {
     })
 }
 
+/// `/`: on the PC itself (no pairing token in the URL) this is the setup page; for phones it is the phone app.
+async fn root(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+) -> Response {
+    if state.setup.is_some() && uri.query().is_none() && is_local_request(peer, &headers) {
+        return axum::response::Redirect::temporary("/setup").into_response();
+    }
+    if let Some(dir) = state.config.web_dir.as_ref().filter(|d| d.join("index.html").is_file()) {
+        return match tokio::fs::read(dir.join("index.html")).await {
+            Ok(html) => ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], html).into_response(),
+            Err(_) => no_web_app().await.into_response(),
+        };
+    }
+    if state.config.embedded_web && crate::embedded::available() {
+        return crate::embedded::serve(uri).await;
+    }
+    no_web_app().await.into_response()
+}
+
 async fn no_web_app() -> Html<&'static str> {
     Html(
         "<!doctype html><meta charset=utf-8><title>Wii U Connect</title>\
@@ -239,6 +268,7 @@ mod tests {
             phone_base_url: "http://192.168.1.2:8737".into(),
             allowed_origins: allowed.iter().map(|s| s.to_string()).collect(),
             web_dir: None,
+            embedded_web: false,
         }
     }
 

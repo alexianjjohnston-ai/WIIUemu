@@ -3,8 +3,11 @@
 //! Phones connect over WebSocket (`/ws`); their input is validated, assigned to a DSU slot and served to Cemu
 //! through the Cemuhook DSU protocol.
 
+pub mod embedded;
 pub mod http;
 pub mod session;
+pub mod setup;
+mod setup_http;
 pub mod tls;
 pub mod tracking;
 pub mod ws;
@@ -25,6 +28,10 @@ pub struct ServerConfig {
     /// Pairing token; random when `None`.
     pub token: Option<String>,
     pub web_dir: Option<PathBuf>,
+    /// Serve the phone app compiled into the executable when `web_dir` is `None`.
+    pub embedded_web: bool,
+    /// The `/setup` assistant (Cemu download and configuration, game folders); `None` disables it.
+    pub setup: Option<setup::SetupConfig>,
     pub allowed_origins: Vec<String>,
     /// Host name or IP phones use to reach this PC; detected when `None`.
     pub public_host: Option<String>,
@@ -125,11 +132,13 @@ pub async fn start(
         phone_base_url,
         allowed_origins: config.allowed_origins.clone(),
         web_dir: config.web_dir.clone(),
+        embedded_web: config.embedded_web,
     };
     let phone_url = http_config.phone_url(&token);
     let app = http::router(http::AppState {
         sessions: sessions.clone(),
         config: Arc::new(http_config),
+        setup: config.setup.clone().map(setup::Setup::new),
     });
     let https_app = app.clone();
 

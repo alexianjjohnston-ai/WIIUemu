@@ -23,6 +23,8 @@ async fn server() -> (Running, tokio::sync::watch::Sender<bool>) {
             dsu_bind: "127.0.0.1:0".parse().unwrap(),
             token: Some(TOKEN.into()),
             web_dir: None,
+            embedded_web: false,
+            setup: None,
             allowed_origins: vec![],
             public_host: None,
             https: None,
@@ -294,6 +296,8 @@ async fn https_listener_serves_phones_with_self_signed_cert() {
             dsu_bind: "127.0.0.1:0".parse().unwrap(),
             token: Some(TOKEN.into()),
             web_dir: None,
+            embedded_web: false,
+            setup: None,
             allowed_origins: vec![],
             public_host: Some("127.0.0.1".into()),
             https: Some(wiiu_connect::HttpsConfig {
