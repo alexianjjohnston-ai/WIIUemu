@@ -1,0 +1,294 @@
+// WebSocket connection to the PC: handshake, keep-alive pings, automatic reconnect with backoff.
+// Pure TypeScript; the WebSocket constructor is injectable so the state machine can be unit-tested.
+
+import { PROTOCOL_VERSION, type ClientMessage, type HelloMessage, type WelcomeMessage } from '../protocol/types';
+import { parseServerMessage } from '../protocol/validate';
+import { backoffDelay, DEFAULT_BACKOFF, type BackoffOptions } from './backoff';
+import { isTerminal, type ConnError } from './errors';
+
+export type ConnectionState =
+  | { status: 'idle' }
+  | { status: 'connecting'; attempt: number }
+  | { status: 'connected'; welcome: WelcomeMessage; rttMs: number | null }
+  | { status: 'reconnecting'; attempt: number; retryInMs: number; reason: ConnError }
+  | { status: 'failed'; reason: ConnError };
+
+/** The subset of the WebSocket API this module uses. */
+export interface SocketLike {
+  readonly readyState: number;
+  readonly bufferedAmount: number;
+  onopen: ((ev: Event) => void) | null;
+  onmessage: ((ev: MessageEvent) => void) | null;
+  onclose: ((ev: CloseEvent) => void) | null;
+  onerror: ((ev: Event) => void) | null;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+}
+
+export type SocketFactory = (url: string) => SocketLike;
+
+const OPEN = 1;
+/** Skip sends while this much data is still queued: snapshots are idempotent, so newer ones win. */
+const MAX_BUFFERED_BYTES = 16 * 1024;
+
+export interface ConnectionOptions {
+  url: string;
+  hello: Omit<HelloMessage, 'type' | 'protocol'>;
+  createSocket?: SocketFactory;
+  backoff?: BackoffOptions;
+  random?: () => number;
+  /** Close and retry if no `welcome` arrives this long after starting an attempt. */
+  handshakeTimeoutMs?: number;
+  pingIntervalMs?: number;
+  /** Treat the link as dead if nothing at all arrives from the server for this long. */
+  staleAfterMs?: number;
+  now?: () => number;
+}
+
+export interface ConnectionEvents {
+  /** Handshake finished; input may be sent now. */
+  onReady?: () => void;
+  /** The socket that was ready went away (always paired with a previous onReady). */
+  onDown?: () => void;
+}
+
+export class Connection {
+  private readonly opts: Required<Omit<ConnectionOptions, 'hello' | 'url'>> &
+    Pick<ConnectionOptions, 'hello' | 'url'>;
+  private readonly events: ConnectionEvents;
+  private readonly listeners = new Set<() => void>();
+  private state: ConnectionState = { status: 'idle' };
+  private socket: SocketLike | null = null;
+  private ready = false;
+  private failures = 0;
+  private lastError: ConnError | null = null;
+  private lastHeardAt = 0;
+  private pingId = 0;
+  private pingSentAt = new Map<number, number>();
+  private handshakeTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+
+  constructor(options: ConnectionOptions, events: ConnectionEvents = {}) {
+    this.opts = {
+      createSocket: (url) => new WebSocket(url),
+      backoff: DEFAULT_BACKOFF,
+      random: Math.random,
+      handshakeTimeoutMs: 8000,
+      pingIntervalMs: 2000,
+      staleAfterMs: 6000,
+      now: () => Date.now(),
+      ...options,
+    };
+    this.events = events;
+  }
+
+  readonly getState = (): ConnectionState => this.state;
+
+  readonly subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  /** Begin connecting (no-op if already active). */
+  start(): void {
+    if (this.state.status === 'idle' || this.state.status === 'failed') {
+      this.failures = 0;
+      this.open();
+    }
+  }
+
+  /** Skip the remaining backoff delay, e.g. when the page becomes visible or the network returns. */
+  retryNow(): void {
+    if (this.state.status === 'reconnecting') {
+      this.clearRetry();
+      this.open();
+    }
+  }
+
+  /** Close for good (user left the controller screen). */
+  stop(): void {
+    this.clearRetry();
+    this.teardownSocket(1000, 'client leaving');
+    this.setState({ status: 'idle' });
+  }
+
+  /** Send a message if the socket is open. Returns true if it was handed to the socket. */
+  send(msg: ClientMessage): boolean {
+    const ws = this.socket;
+    if (!ws || ws.readyState !== OPEN) return false;
+    if (msg.type === 'input' && ws.bufferedAmount > MAX_BUFFERED_BYTES) return false;
+    try {
+      ws.send(JSON.stringify(msg));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  get isReady(): boolean {
+    return this.ready;
+  }
+
+  // ---- internals -----------------------------------------------------------------------------
+
+  private setState(next: ConnectionState): void {
+    this.state = next;
+    for (const l of this.listeners) l();
+  }
+
+  private open(): void {
+    this.lastError = null;
+    this.setState({ status: 'connecting', attempt: this.failures + 1 });
+    let ws: SocketLike;
+    try {
+      ws = this.opts.createSocket(this.opts.url);
+    } catch {
+      // Invalid URL etc. Treat like a network failure so the user sees a readable state.
+      this.lastError = { code: 'network', detail: 'could not open WebSocket' };
+      this.handleClosed();
+      return;
+    }
+    this.socket = ws;
+
+    ws.onopen = () => {
+      const hello: HelloMessage = { type: 'hello', protocol: PROTOCOL_VERSION, ...this.opts.hello };
+      this.send(hello);
+    };
+    ws.onmessage = (ev) => {
+      this.onMessage(ev.data);
+    };
+    ws.onerror = () => {
+      // A close event always follows; nothing to do here.
+    };
+    ws.onclose = () => {
+      if (this.socket !== ws) return;
+      this.detachSocket();
+      this.handleClosed();
+    };
+
+    this.handshakeTimer = setTimeout(() => {
+      this.handshakeTimer = null;
+      this.lastError ??= { code: 'handshake_timeout' };
+      this.abandonSocket();
+    }, this.opts.handshakeTimeoutMs);
+  }
+
+  private onMessage(data: unknown): void {
+    if (typeof data !== 'string') return;
+    this.lastHeardAt = this.opts.now();
+    const msg = parseServerMessage(data);
+    if (!msg) return;
+    switch (msg.type) {
+      case 'welcome':
+        if (msg.protocol !== PROTOCOL_VERSION) {
+          this.lastError = { code: 'unsupported_protocol', detail: `server protocol ${msg.protocol}` };
+          this.abandonSocket();
+          return;
+        }
+        this.clearHandshake();
+        this.failures = 0;
+        this.ready = true;
+        this.setState({ status: 'connected', welcome: msg, rttMs: null });
+        this.startPings();
+        this.events.onReady?.();
+        return;
+      case 'pong': {
+        const sentAt = this.pingSentAt.get(msg.id);
+        this.pingSentAt.delete(msg.id);
+        if (sentAt !== undefined && this.state.status === 'connected') {
+          this.setState({ ...this.state, rttMs: Math.max(0, this.opts.now() - sentAt) });
+        }
+        return;
+      }
+      case 'error':
+        // The server closes right after sending an error; remember why.
+        this.lastError = { code: msg.code, detail: msg.message };
+        return;
+    }
+  }
+
+  private startPings(): void {
+    this.lastHeardAt = this.opts.now();
+    this.pingTimer = setInterval(() => {
+      const now = this.opts.now();
+      if (now - this.lastHeardAt > this.opts.staleAfterMs) {
+        this.lastError ??= { code: 'stale' };
+        this.abandonSocket();
+        return;
+      }
+      this.pingId += 1;
+      this.pingSentAt.set(this.pingId, now);
+      if (this.pingSentAt.size > 8) {
+        const oldest = this.pingSentAt.keys().next().value;
+        if (oldest !== undefined) this.pingSentAt.delete(oldest);
+      }
+      this.send({ type: 'ping', id: this.pingId });
+    }, this.opts.pingIntervalMs);
+  }
+
+  /** Give up on the current socket immediately, without waiting for a close handshake. */
+  private abandonSocket(): void {
+    this.teardownSocket(4000, 'client timeout');
+    this.handleClosed();
+  }
+
+  private teardownSocket(code: number, reason: string): void {
+    const ws = this.socket;
+    this.detachSocket();
+    if (ws) {
+      ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+      try {
+        ws.close(code, reason);
+      } catch {
+        // already closed
+      }
+    }
+  }
+
+  /** Forget the socket and stop its timers; fires onDown if it was ready. */
+  private detachSocket(): void {
+    this.socket = null;
+    this.clearHandshake();
+    if (this.pingTimer !== null) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    this.pingSentAt.clear();
+    if (this.ready) {
+      this.ready = false;
+      this.events.onDown?.();
+    }
+  }
+
+  private handleClosed(): void {
+    const reason = this.lastError ?? { code: 'network' };
+    if (isTerminal(reason)) {
+      this.setState({ status: 'failed', reason });
+      return;
+    }
+    this.failures += 1;
+    const delay = backoffDelay(this.failures, this.opts.backoff, this.opts.random);
+    this.setState({ status: 'reconnecting', attempt: this.failures, retryInMs: delay, reason });
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.open();
+    }, delay);
+  }
+
+  private clearHandshake(): void {
+    if (this.handshakeTimer !== null) {
+      clearTimeout(this.handshakeTimer);
+      this.handshakeTimer = null;
+    }
+  }
+
+  private clearRetry(): void {
+    if (this.retryTimer !== null) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+  }
+}
