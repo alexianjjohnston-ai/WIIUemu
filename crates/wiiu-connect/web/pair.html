@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wii U Connect – Pairing</title>
+<style>
+  :root { --bg: #f4f5f7; --card: #fff; --text: #1d1f23; --muted: #6b7280; --accent: #009ac7; --ok: #16a34a; --warn: #d97706; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #15171a; --card: #1f2226; --text: #eceef1; --muted: #9aa1ab; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px; display: grid; gap: 16px; }
+  h1 { font-size: 22px; margin: 0; }
+  .card { background: var(--card); border-radius: 14px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .pair { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center; }
+  @media (max-width: 560px) { .pair { grid-template-columns: 1fr; justify-items: center; } }
+  .qr { background: #fff; padding: 8px; border-radius: 10px; line-height: 0; }
+  .qr svg { width: 240px; height: 240px; }
+  code { word-break: break-all; font-size: 13px; }
+  .muted { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid rgba(127,127,127,.2); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); margin-right: 6px; }
+  .on .dot { background: var(--ok); } .stale .dot { background: var(--warn); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Wii U Connect</h1>
+  <section class="card pair">
+    <div class="qr">{{QR_SVG}}</div>
+    <div>
+      <p><strong>Scan with each phone</strong> (same Wi-Fi network as this PC).</p>
+      <p class="muted">Or open:<br><code>{{PHONE_URL}}</code></p>
+      <p class="muted">This link contains the pairing token. Only share it with people in the room.</p>
+    </div>
+  </section>
+  <section class="card">
+    <table>
+      <thead><tr><th>Player</th><th>Controller</th><th>Phone</th><th>Pointer</th></tr></thead>
+      <tbody id="slots"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody>
+    </table>
+    <p class="muted">No phone? Test the Wii Remote pointer with your mouse: <a href="/dev/pointer" target="_blank">mouse pointer test</a>.</p>
+  </section>
+</main>
+<script>
+  const body = document.getElementById('slots');
+  function cell(text) { const td = document.createElement('td'); td.textContent = text; return td; }
+  async function refresh() {
+    try {
+      const res = await fetch('/api/status', { cache: 'no-store' });
+      const slots = await res.json();
+      body.replaceChildren(...slots.map(s => {
+        const tr = document.createElement('tr');
+        const state = !s.connected ? 'Waiting' : s.stale ? 'No input' : 'Connected';
+        const who = document.createElement('td');
+        who.className = s.connected ? (s.stale ? 'stale' : 'on') : '';
+        who.innerHTML = '<span class="dot"></span>';
+        who.append(s.connected ? (s.device_name || 'Phone') + ' – ' + state : state);
+        tr.append(
+          cell(s.role === 'gamepad' ? 'GamePad' : 'P' + s.player),
+          cell(s.role === 'gamepad' ? 'Wii U GamePad' : 'Wii Remote'),
+          who,
+          cell(s.pointer ? s.pointer.map(v => v.toFixed(3)).join(', ') : '–'));
+        return tr;
+      }));
+    } catch (e) { /* server restarting; try again */ }
+  }
+  refresh(); setInterval(refresh, 1000);
+</script>
+</body>
+</html>
