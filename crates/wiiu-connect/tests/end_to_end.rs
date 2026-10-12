@@ -11,7 +11,7 @@ use wiiu_dsu::probe::DsuProbe;
 use wiiu_dsu::{PadData, TouchPoint};
 
 const T: Duration = Duration::from_secs(3);
-const TOKEN: &str = "test-token-0123456789";
+const TOKEN: &str = "test-pairing-token-not-secret";
 
 type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 

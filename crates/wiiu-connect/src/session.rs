@@ -265,7 +265,7 @@ mod tests {
     use wiiu_controller::protocol::Xy;
     use wiiu_dsu::pad::buttons as dsu;
 
-    const TOKEN: &str = "0123456789abcdef0123456789abcdef";
+    const TOKEN: &str = "test-pairing-token-not-secret";
 
     fn manager() -> (SessionManager, SlotTable) {
         let table = SlotTable::new();
@@ -301,7 +301,7 @@ mod tests {
         h.token = "wrong".into();
         assert_eq!(m.authenticate(&h, now).unwrap_err().0, ErrorCode::BadToken);
         let mut h = hello(Role::Wiimote, "device-aaaa");
-        h.token = TOKEN.replace('0', "1");
+        h.token = TOKEN.replace("secret", "secreT"); // same length, one byte differs
         assert_eq!(m.authenticate(&h, now).unwrap_err().0, ErrorCode::BadToken);
         let mut h = hello(Role::Wiimote, "device-aaaa");
         h.protocol = 9;
