@@ -1,7 +1,7 @@
 # Wii U Connect
 
 Turn up to four smartphones into Wii U controllers for the [Cemu](https://github.com/cemu-project/Cemu) emulator
-on Windows:
+on Windows and macOS:
 
 - **Phone 1:** a Wii U GamePad (streamed GamePad screen, touch input, sticks, buttons, motion)
 - **Phones 2–4:** Wii Remotes (original button layout, camera-based TV pointing, motion)
@@ -27,16 +27,28 @@ Working now, verified by automated tests but **not yet in a real game**:
 Not built yet: camera pointing (AprilTags), the GamePad video stream, motion from phone sensors, and the desktop
 app/installer.
 
+## Download
+
+Prebuilt packages are attached to [GitHub Releases](../../releases) once a version is tagged:
+
+- **Windows:** `wiiu-connect-windows-x64.zip`
+- **macOS (Apple Silicon and Intel):** `wiiu-connect-macos-universal.zip`
+
+The Mac build is not notarised. After unzipping, run once in Terminal:
+`xattr -d com.apple.quarantine wiiu-connect`, then start it with `./wiiu-connect`. Allow incoming connections
+when macOS asks; phones need to reach it.
+
 ## Try it (developer preview)
 
-Requires Rust 1.82+ and Cemu 2.x on Windows.
+Requires Rust 1.82+ and Cemu 2.x on Windows or macOS.
 
 ```sh
 cargo run --release -p wiiu-connect
 ```
 
-1. Write Cemu profiles once:
-   `cargo run --release -p wiiu-connect -- cemu-profile --dir "<Cemu folder>\controllerProfiles"`
+1. Write Cemu profiles once: `cargo run --release -p wiiu-connect -- cemu-profile`
+   (it finds Cemu's folder automatically: `%APPDATA%\Cemu` on Windows,
+   `~/Library/Application Support/Cemu` on macOS; pass `--dir` otherwise).
 2. In Cemu, open **Options → Input settings**, select **Controller 2**, choose emulated controller **Wiimote**,
    and load the profile **WiiUConnect_Wiimote1**. Do the same for Controllers 3–4 with Wiimote2/3 if you want
    more players.
