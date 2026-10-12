@@ -12,8 +12,16 @@ interface Props {
 }
 
 const ROLES: { value: Role; title: string; detail: string }[] = [
-  { value: 'wiimote', title: 'Wii Remote', detail: 'Buttons, B trigger on the screen edge' },
-  { value: 'gamepad', title: 'GamePad', detail: 'Coming soon' },
+  {
+    value: 'wiimote',
+    title: 'Wii Remote',
+    detail: 'Buttons, B trigger on the screen edge',
+  },
+  {
+    value: 'gamepad',
+    title: 'GamePad',
+    detail: 'Sticks, buttons and touchscreen, held sideways',
+  },
 ];
 
 export function ConnectScreen({ initialToken, tokenFromQr, serverUrl, initialRole, onConnect }: Props) {
@@ -22,7 +30,7 @@ export function ConnectScreen({ initialToken, tokenFromQr, serverUrl, initialRol
   const [role, setRole] = useState<Role>(initialRole);
   const tokenId = useId();
   const trimmed = token.trim();
-  const canConnect = role === 'gamepad' || trimmed.length > 0;
+  const canConnect = trimmed.length > 0;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -99,7 +107,7 @@ export function ConnectScreen({ initialToken, tokenFromQr, serverUrl, initialRol
         </fieldset>
 
         <button type="submit" className="btn btn--block" disabled={!canConnect}>
-          {role === 'gamepad' ? 'Continue' : 'Connect'}
+          Connect
         </button>
         <p className="muted small">PC: {serverUrl}</p>
       </form>

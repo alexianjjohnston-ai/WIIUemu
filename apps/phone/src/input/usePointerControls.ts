@@ -4,9 +4,7 @@ import { useCallback, useMemo, useSyncExternalStore, type PointerEvent as ReactP
 import type { InputEngine } from './engine';
 import { dpadDirections, type DpadDirection } from './dpad';
 import { hapticTap } from '../lib/haptics';
-import type { WiimoteButton } from '../protocol/types';
 
-type Engine = InputEngine<WiimoteButton>;
 type El = HTMLElement;
 
 const sourceOf = (e: ReactPointerEvent) => `p:${e.pointerId}`;
@@ -25,7 +23,7 @@ function isPrimaryPress(e: ReactPointerEvent): boolean {
 }
 
 /** Is `button` currently pressed? Re-renders only when that answer changes. */
-export function usePressed(engine: Engine, button: WiimoteButton): boolean {
+export function usePressed<B extends string>(engine: InputEngine<B>, button: B): boolean {
   const get = useCallback(() => engine.isPressed(button), [engine, button]);
   return useSyncExternalStore(engine.subscribe, get, get);
 }
@@ -38,15 +36,19 @@ export interface PointerHandlers {
   onLostPointerCapture: (e: ReactPointerEvent<El>) => void;
 }
 
-function releaseHandlers(engine: Engine) {
+function releaseHandlers(engine: InputEngine) {
   const release = (e: ReactPointerEvent<El>) => {
     engine.releaseSource(sourceOf(e));
   };
-  return { onPointerUp: release, onPointerCancel: release, onLostPointerCapture: release };
+  return {
+    onPointerUp: release,
+    onPointerCancel: release,
+    onLostPointerCapture: release,
+  };
 }
 
 /** Handlers for a single button: each pointer holds it from down until up/cancel/lost capture. */
-export function useButtonPointer(engine: Engine, button: WiimoteButton): PointerHandlers {
+export function useButtonPointer<B extends string>(engine: InputEngine<B>, button: B): PointerHandlers {
   return useMemo(
     () => ({
       onPointerDown: (e: ReactPointerEvent<El>) => {
@@ -62,7 +64,7 @@ export function useButtonPointer(engine: Engine, button: WiimoteButton): Pointer
 }
 
 /** Handlers for the D-pad: the direction follows the finger while it stays down (8-way). */
-export function useDpadPointer(engine: Engine): PointerHandlers {
+export function useDpadPointer<B extends string>(engine: InputEngine<B | DpadDirection>): PointerHandlers {
   return useMemo(() => {
     const update = (e: ReactPointerEvent<El>) => {
       const rect = e.currentTarget.getBoundingClientRect();
