@@ -42,3 +42,6 @@ otp.bin
 seeprom.bin
 mlc01/
 slc01/
+
+# Claude Code agent worktrees
+.claude/worktrees/

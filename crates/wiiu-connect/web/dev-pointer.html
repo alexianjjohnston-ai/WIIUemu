@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wii U Connect – Mouse pointer test</title>
+<style>
+  :root { --bg: #101215; --panel: #1b1e22; --text: #e9ecef; --muted: #9aa1ab; --accent: #2bb5e8; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  body { display: grid; grid-template-rows: auto 1fr auto; }
+  header, footer { padding: 10px 16px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+  footer { color: var(--muted); font-size: 13px; }
+  #status { font-weight: 600; }
+  #wrap { display: grid; place-items: center; padding: 8px 16px; min-height: 0; }
+  #tv { position: relative; width: min(100%, calc((100vh - 120px) * 16 / 9)); aspect-ratio: 16 / 9;
+        background: repeating-linear-gradient(45deg, #1a1d21 0 12px, #16191c 12px 24px); border: 2px solid #333a42;
+        border-radius: 6px; cursor: none; user-select: none; touch-action: none; }
+  #cursor { position: absolute; width: 28px; height: 28px; margin: -14px 0 0 -14px; border-radius: 50%;
+            border: 3px solid var(--accent); pointer-events: none; display: none; }
+  #tv.pressed #cursor { background: rgba(43,181,232,.35); }
+  kbd { background: var(--panel); border-radius: 4px; padding: 1px 6px; border: 1px solid #333a42; }
+  #held { min-width: 120px; color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <span id="status">Connecting…</span>
+  <span>Held: <span id="held">–</span></span>
+  <span id="pos" class="muted"></span>
+</header>
+<div id="wrap"><div id="tv"><div id="cursor"></div></div></div>
+<footer>
+  The box stands for your TV. Move the mouse over it to aim. Leaving the box hides the pointer.
+  <span><kbd>Left click</kbd> A</span><span><kbd>Right click</kbd> B</span><span><kbd>Arrows</kbd> D-pad</span>
+  <span><kbd>1</kbd> <kbd>2</kbd></span><span><kbd>+</kbd> <kbd>-</kbd></span><span><kbd>H</kbd> HOME</span>
+</footer>
+<script>
+"use strict";
+const TOKEN = "{{TOKEN_JSON}}";
+const KEYS = { ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT', '1': 'ONE', '2': 'TWO',
+               '+': 'PLUS', '=': 'PLUS', '-': 'MINUS', h: 'HOME', H: 'HOME' };
+const tv = document.getElementById('tv'), cursor = document.getElementById('cursor');
+const statusEl = document.getElementById('status'), heldEl = document.getElementById('held'), posEl = document.getElementById('pos');
+const held = new Set();
+let pointer = null, seq = 0, ws = null, retry = 500;
+
+function deviceId() {
+  try {
+    let id = localStorage.getItem('wiiu-dev-pointer-id');
+    if (!id) { id = 'dev-mouse-' + crypto.randomUUID(); localStorage.setItem('wiiu-dev-pointer-id', id); }
+    return id;
+  } catch { return 'dev-mouse-' + Math.random().toString(36).slice(2, 12); }
+}
+const DEVICE_ID = deviceId();
+
+function sendState() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'input', seq: ++seq, buttons: [...held], pointer }));
+  heldEl.textContent = held.size ? [...held].join(' ') : '–';
+  tv.classList.toggle('pressed', held.has('A'));
+}
+
+function connect() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.onopen = () => {
+    retry = 500; seq = 0;
+    ws.send(JSON.stringify({ type: 'hello', protocol: 1, token: TOKEN, role: 'wiimote', deviceId: DEVICE_ID, name: 'Mouse test' }));
+  };
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'welcome') { statusEl.textContent = 'Connected as Wii Remote player ' + msg.player + ' (DSU slot ' + msg.slot + ')'; sendState(); }
+    else if (msg.type === 'error') statusEl.textContent = 'Error: ' + msg.message;
+  };
+  ws.onclose = () => {
+    held.clear();
+    statusEl.textContent = 'Disconnected – retrying…';
+    setTimeout(connect, retry); retry = Math.min(retry * 2, 5000);
+  };
+}
+
+function setPointer(ev) {
+  const r = tv.getBoundingClientRect();
+  const x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
+  if (x < 0 || x > 1 || y < 0 || y > 1) { pointer = null; cursor.style.display = 'none'; posEl.textContent = 'pointer off-screen'; }
+  else {
+    pointer = { x: +x.toFixed(4), y: +y.toFixed(4) };
+    cursor.style.display = 'block'; cursor.style.left = (x * 100) + '%'; cursor.style.top = (y * 100) + '%';
+    posEl.textContent = 'x ' + pointer.x.toFixed(3) + '  y ' + pointer.y.toFixed(3);
+  }
+  sendState();
+}
+
+tv.addEventListener('pointermove', setPointer);
+tv.addEventListener('pointerleave', () => { pointer = null; cursor.style.display = 'none'; sendState(); });
+tv.addEventListener('pointerdown', (ev) => { tv.setPointerCapture(ev.pointerId); held.add(ev.button === 2 ? 'B' : 'A'); setPointer(ev); });
+tv.addEventListener('pointerup', (ev) => { held.delete(ev.button === 2 ? 'B' : 'A'); setPointer(ev); });
+tv.addEventListener('contextmenu', (ev) => ev.preventDefault());
+addEventListener('keydown', (ev) => { const b = KEYS[ev.key]; if (b) { ev.preventDefault(); if (!held.has(b)) { held.add(b); sendState(); } } });
+addEventListener('keyup', (ev) => { const b = KEYS[ev.key]; if (b) { held.delete(b); sendState(); } });
+addEventListener('blur', () => { held.clear(); sendState(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { held.clear(); sendState(); } });
+setInterval(sendState, 50); // heartbeat keeps the server watchdog satisfied
+connect();
+</script>
+</body>
+</html>
