@@ -1,0 +1,44 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Editors / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local runtime data (pairing secrets, saved device assignments)
+/data/
+*.local.json
+.env
+.env.*
+
+# NEVER commit Nintendo proprietary content, console keys or user dumps
+keys.txt
+*.wud
+*.wux
+*.wua
+*.rpx
+*.rpl
+*.iso
+*.wbfs
+*.nus
+otp.bin
+seeprom.bin
+mlc01/
+slc01/
