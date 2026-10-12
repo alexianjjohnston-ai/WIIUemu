@@ -111,6 +111,31 @@ button_enum! {
     }
 }
 
+impl GamepadButton {
+    /// Cemu `VPADController::ButtonId` (src/input/emulated/VPADController.h).
+    pub const fn cemu_mapping_id(self) -> u64 {
+        match self {
+            GamepadButton::A => 1,
+            GamepadButton::B => 2,
+            GamepadButton::X => 3,
+            GamepadButton::Y => 4,
+            GamepadButton::L => 5,
+            GamepadButton::R => 6,
+            GamepadButton::ZL => 7,
+            GamepadButton::ZR => 8,
+            GamepadButton::Plus => 9,
+            GamepadButton::Minus => 10,
+            GamepadButton::Up => 11,
+            GamepadButton::Down => 12,
+            GamepadButton::Left => 13,
+            GamepadButton::Right => 14,
+            GamepadButton::L3 => 15,
+            GamepadButton::R3 => 16,
+            GamepadButton::Home => 27,
+        }
+    }
+}
+
 /// Set of held buttons for one role, as a bitmask of `Button::bit()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ButtonSet(pub u32);
@@ -145,6 +170,12 @@ mod tests {
     #[test]
     fn gamepad_buttons_have_distinct_dsu_targets() {
         assert_injective(GamepadButton::ALL.iter().map(|b| b.dsu_mask()).collect());
+    }
+
+    #[test]
+    fn gamepad_cemu_ids_are_distinct() {
+        let ids: HashSet<_> = GamepadButton::ALL.iter().map(|b| b.cemu_mapping_id()).collect();
+        assert_eq!(ids.len(), GamepadButton::ALL.len());
     }
 
     #[test]

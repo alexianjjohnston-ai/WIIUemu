@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
-use wiiu_cemu::{write_profile, WiimoteExtension, WiimoteProfile};
+use wiiu_cemu::{write_profile, GamepadProfile, WiimoteExtension, WiimoteProfile};
 use wiiu_connect::ServerConfig;
 
 #[derive(Parser)]
@@ -86,6 +86,9 @@ struct ProfileArgs {
     extension: Extension,
     #[arg(long, default_value_t = wiiu_dsu::DEFAULT_PORT)]
     dsu_port: u16,
+    /// Skip the GamePad profile (WiiUConnect_GamePad, DSU slot 0).
+    #[arg(long)]
+    no_gamepad: bool,
     /// Overwrite existing profiles with the same name.
     #[arg(long)]
     force: bool,
@@ -184,6 +187,13 @@ fn cemu_profile(args: ProfileArgs) -> anyhow::Result<()> {
             .find(|d| d.is_dir())
             .context("could not find Cemu's controllerProfiles folder; pass --dir")?,
     };
+    if !args.no_gamepad {
+        let profile = GamepadProfile {
+            dsu_port: args.dsu_port,
+            ..GamepadProfile::default()
+        };
+        println!("wrote {}", write_profile(&dir, &profile, args.force)?.display());
+    }
     for player in args.players {
         anyhow::ensure!((1..=3).contains(&player), "players must be 1, 2 or 3");
         let mut profile = WiimoteProfile::for_player(player);
@@ -197,7 +207,8 @@ fn cemu_profile(args: ProfileArgs) -> anyhow::Result<()> {
         let path = write_profile(&dir, &profile, args.force)?;
         println!("wrote {}", path.display());
     }
-    println!("In Cemu: Options → Input settings → pick Controller 2–4 → load profile WiiUConnect_WiimoteN.");
+    println!("In Cemu: Options → Input settings → Controller 1 → load WiiUConnect_GamePad;");
+    println!("         Controllers 2–4 → load WiiUConnect_Wiimote1/2/3.");
     Ok(())
 }
 
