@@ -14,6 +14,10 @@ pub const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 pub const MAX_MESSAGES_PER_SECOND: u32 = 500;
 /// Camera frames accepted per second per phone (protocol v2); extra frames are dropped silently.
 pub const MAX_CAMERA_FPS: u32 = 60;
+/// Gyro samples accepted per second per phone (protocol v2); more closes the connection.
+pub const MAX_GYRO_SAMPLES_PER_SECOND: u32 = 1000;
+/// A phone that sends nothing for this long is gone (phones send input every 100 ms and ping every 2 s).
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Small delay before rejecting a bad token, to slow down guessing.
 const BAD_TOKEN_DELAY: Duration = Duration::from_millis(300);
 
@@ -141,11 +145,15 @@ impl RateWindow {
 
     /// Counts one event; returns `false` once more than `limit` happened in the current second.
     fn allow(&mut self, now: Instant, limit: u32) -> bool {
+        self.allow_n(now, 1, limit)
+    }
+
+    fn allow_n(&mut self, now: Instant, n: u32, limit: u32) -> bool {
         if now.duration_since(self.start) >= Duration::from_secs(1) {
             self.start = now;
             self.count = 0;
         }
-        self.count += 1;
+        self.count = self.count.saturating_add(n);
         self.count <= limit
     }
 }
@@ -153,6 +161,8 @@ impl RateWindow {
 async fn run_session(socket: &mut WebSocket, ctx: SessionCtx, mut replaced: tokio::sync::oneshot::Receiver<()>) {
     let mut messages = RateWindow::new();
     let mut frames = RateWindow::new();
+    let mut gyro_samples = RateWindow::new();
+    let mut last_heard = tokio::time::Instant::now();
     let mut last_frame_seq: Option<u32> = None;
     let mut last_gyro_t: Option<u64> = None;
     let tracking_allowed = ctx.protocol >= 2 && ctx.role == Role::Wiimote;
@@ -180,8 +190,12 @@ async fn run_session(socket: &mut WebSocket, ctx: SessionCtx, mut replaced: toki
                 }
                 continue;
             }
+            _ = tokio::time::sleep_until(last_heard + IDLE_TIMEOUT) => {
+                return fail(socket, ErrorCode::Timeout, "no messages for 10 s").await;
+            }
             m = next_message(socket) => m,
         };
+        last_heard = tokio::time::Instant::now();
         let incoming = match incoming {
             Ok(Some(m)) => m,
             Ok(None) => return,
@@ -206,6 +220,11 @@ async fn run_session(socket: &mut WebSocket, ctx: SessionCtx, mut replaced: toki
                     return fail(socket, ErrorCode::InvalidMessage, "camera frame seq must increase").await;
                 }
                 last_frame_seq = Some(frame.seq);
+                // Header-only parse: the size must match before the frame is accepted (reject, don't drop).
+                if let Err(e) = wiiu_tracking::detect::check_jpeg_header(frame.jpeg, (frame.width, frame.height)) {
+                    return fail(socket, ErrorCode::InvalidMessage, format!("camera frame: {e}")).await;
+                }
+                ctx.sessions.note_camera_frame(ctx.conn_id, ctx.slot, now);
                 if frames.allow(now, MAX_CAMERA_FPS) {
                     ensure_tracker(&mut tracker);
                     if let Some(t) = &tracker {
@@ -241,6 +260,9 @@ async fn run_session(socket: &mut WebSocket, ctx: SessionCtx, mut replaced: toki
                     Ok(s) => s,
                     Err(e) => return fail(socket, e.code(), e.to_string()).await,
                 };
+                if !gyro_samples.allow_n(now, samples.len() as u32, MAX_GYRO_SAMPLES_PER_SECOND) {
+                    return fail(socket, ErrorCode::InvalidMessage, "gyro sample rate limit exceeded").await;
+                }
                 last_gyro_t = samples.last().map(|s| s.t_us);
                 ensure_tracker(&mut tracker);
                 if let Some(t) = &tracker {

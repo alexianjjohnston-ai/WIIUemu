@@ -24,6 +24,9 @@ pub fn device_to_camera(rate: [f64; 3]) -> [f64; 3] {
 
 /// Gyro history kept for replay; covers the worst expected capture → fix delay.
 const GYRO_HISTORY_US: u64 = 1_000_000;
+/// Hard cap on buffered samples (≈ 1 s at 1 kHz), so tightly spaced timestamps can't grow the history or the
+/// replay cost without bound.
+const GYRO_HISTORY_MAX: usize = 1024;
 /// Largest gap integrated as one step; longer gaps mean missing data, not motion.
 const MAX_GYRO_STEP_US: u64 = 100_000;
 
@@ -98,7 +101,9 @@ impl Tracker {
             self.gyro.push_back(*s);
         }
         if let Some(newest) = self.gyro.back().map(|s| s.t_us) {
-            while self.gyro.front().is_some_and(|s| s.t_us + GYRO_HISTORY_US < newest) {
+            while self.gyro.len() > GYRO_HISTORY_MAX
+                || self.gyro.front().is_some_and(|s| s.t_us + GYRO_HISTORY_US < newest)
+            {
                 self.gyro.pop_front();
             }
         }
@@ -173,5 +178,18 @@ mod tests {
             .collect();
         t.on_gyro(&samples);
         assert!(t.gyro.len() <= 202, "{}", t.gyro.len());
+    }
+
+    #[test]
+    fn gyro_history_is_bounded_by_count_for_dense_timestamps() {
+        let mut t = Tracker::new(MarkerLayout::border(&BorderConfig::default()), 640, 360, 65.0);
+        let samples: Vec<DeviceGyro> = (1..=10_000)
+            .map(|i| DeviceGyro {
+                t_us: i,
+                rate: [0.0; 3],
+            })
+            .collect();
+        t.on_gyro(&samples);
+        assert_eq!(t.gyro.len(), GYRO_HISTORY_MAX);
     }
 }

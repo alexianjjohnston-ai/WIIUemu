@@ -15,16 +15,32 @@ pub enum DetectError {
     Setup,
 }
 
-/// Decodes a baseline JPEG to 8-bit grayscale. Rejects images whose size differs from `expected`.
-pub fn decode_jpeg_gray(jpeg: &[u8], expected: (u16, u16)) -> Result<Vec<u8>, DetectError> {
-    let mut decoder = jpeg_decoder::Decoder::new(jpeg);
-    // Read the header first so a lying size is rejected before decoding megapixels.
+/// Parses only the JPEG headers (cheap) and checks size and pixel format, without decoding pixels.
+pub fn check_jpeg_header(jpeg: &[u8], expected: (u16, u16)) -> Result<(), DetectError> {
+    read_header(&mut jpeg_decoder::Decoder::new(jpeg), expected).map(|_| ())
+}
+
+fn read_header(
+    decoder: &mut jpeg_decoder::Decoder<&[u8]>,
+    expected: (u16, u16),
+) -> Result<jpeg_decoder::ImageInfo, DetectError> {
     decoder.read_info()?;
     let info = decoder.info().expect("read_info succeeded");
     let got = (info.width, info.height);
     if got != expected {
         return Err(DetectError::SizeMismatch { expected, got });
     }
+    match info.pixel_format {
+        jpeg_decoder::PixelFormat::L8 | jpeg_decoder::PixelFormat::RGB24 => Ok(info),
+        other => Err(DetectError::PixelFormat(other)),
+    }
+}
+
+/// Decodes a baseline JPEG to 8-bit grayscale. Rejects images whose size differs from `expected`.
+pub fn decode_jpeg_gray(jpeg: &[u8], expected: (u16, u16)) -> Result<Vec<u8>, DetectError> {
+    let mut decoder = jpeg_decoder::Decoder::new(jpeg);
+    // Read the header first so a lying size is rejected before decoding megapixels.
+    let info = read_header(&mut decoder, expected)?;
     let pixels = decoder.decode()?;
     match info.pixel_format {
         jpeg_decoder::PixelFormat::L8 => Ok(pixels),

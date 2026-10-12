@@ -439,3 +439,23 @@ async fn camera_frames_are_rejected_on_protocol_v1_and_for_bad_headers() {
     .unwrap();
     assert_eq!(recv_error_and_close(&mut ws).await.unwrap()["code"], "invalid_message");
 }
+
+#[tokio::test]
+async fn camera_frame_whose_jpeg_size_differs_from_the_header_closes_the_connection() {
+    use wiiu_controller::protocol::encode_camera_frame;
+    let (r, _stop) = server().await;
+    let mut ws = connect(&r).await;
+    send(
+        &mut ws,
+        json!({"type":"hello","protocol":2,"token":TOKEN,"role":"wiimote","deviceId":"device-4200"}),
+    )
+    .await;
+    recv(&mut ws).await;
+    let jpeg = border_jpeg(640, 360);
+    ws.send(Message::Binary(encode_camera_frame(320, 180, 1, 1, &jpeg).into()))
+        .await
+        .unwrap();
+    let err = recv_error_and_close(&mut ws).await.unwrap();
+    assert_eq!(err["code"], "invalid_message");
+    assert!(err["message"].as_str().unwrap().contains("header says"), "{err}");
+}
