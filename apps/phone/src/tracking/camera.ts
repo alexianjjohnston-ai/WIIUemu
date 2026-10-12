@@ -3,7 +3,7 @@
 // exercised by the Playwright tests with Chromium's fake camera.
 
 import { MAX_CAMERA_PAYLOAD_BYTES, type GyroMessage } from '../protocol/types';
-import { encodeCameraFrame, fitFrameSize, nextJpegQuality } from './frame';
+import { DEFAULT_MAX_LONG_SIDE, encodeCameraFrame, fitFrameSize, nextJpegQuality } from './frame';
 import { GyroBatcher, rotationRateToRad } from './gyro';
 
 export interface FrameSink {
@@ -48,7 +48,7 @@ export class CameraStreamer {
     opts: CameraStreamerOptions = {},
   ) {
     this.frameIntervalMs = 1000 / (opts.targetFps ?? 30);
-    this.maxLongSide = opts.maxLongSide ?? 640;
+    this.maxLongSide = opts.maxLongSide ?? DEFAULT_MAX_LONG_SIDE;
   }
 
   /** Opens the rear camera. Rejects with the getUserMedia error (e.g. NotAllowedError) on failure. */
