@@ -1,6 +1,42 @@
 # Camera tracking and calibration
 
-> **Status: design only. Nothing in this document is implemented yet (Milestone 2).**
+> **Status (2026-10-12):** the pointing math is implemented and tested with synthetic cameras
+> (`crates/wiiu-tracking`). Not built yet: marker rendering, on-phone detection, gyro fusion, calibration UI.
+
+## Important ergonomic constraint: camera orientation
+
+A phone's rear camera looks out of the **back** of the phone, but a Wii Remote points along its **long axis**. If
+a phone is held like a Wii Remote (top edge toward the TV, screen facing up), its camera looks at the floor and
+cannot see the markers. There are two workable grips:
+
+1. **"Photo grip" (no accessory):** the phone is held upright with its back facing the TV and the screen facing
+   the player. The pointing direction is the camera axis. The buttons stay on screen under the thumbs. This needs
+   no hardware and is the default the math assumes (aim image point = image centre).
+2. **Periscope grip (3D-printed accessory):** a 45° mirror clip over the rear camera turns its view by 90°, so
+   the phone can be held like a real Wii Remote. The mirror flips the image, which a homography handles. The
+   calibration step absorbs the changed pointing direction (`calibrate_aim_point`).
+
+This must be validated physically with real phones before the controller UI is finalised.
+
+## Implemented (crates/wiiu-tracking)
+
+| Module | What it does | Tests |
+|--------|--------------|-------|
+| `markers` | Lays out square `tag36h11` tags clockwise in a border just outside the game image, in game-normalised coordinates (same space as the protocol `pointer`). | ids unique, tags square in px, no overlap with the game |
+| `homography` | Normalised DLT (Hartley-Zisserman 4.2) with a Jacobi eigen-solver; rejects degenerate input. | exact recovery, degeneracy rejection |
+| `aim` | `estimate_aim`: image → game homography from all visible tag corners, aim = H(aim image point); rejects < 2 tags or reprojection RMS > 3 px. `calibrate_aim_point`: per-device pointing-axis calibration. | synthetic camera (below) |
+
+Synthetic results (`tests/synthetic.rs`, 1280×720 camera, f = 1000 px, 2–4 screen heights away, random
+yaw/pitch/roll/offset):
+
+- Noise-free: aim matches the ray-plane ground truth to < 1e-6 across ≥ 200 random poses.
+- 0.5 px Gaussian corner noise: median error 0.023 % and 95th percentile 0.057 % of the screen width
+  (300 poses). On a 1920 px wide TV, that is about 0.4 px median and 1.1 px p95.
+- Rolling the phone around its pointing axis does not move the aim point, as on a real Wii Remote.
+- Calibration of an offset pointing axis (8° / 5°) brings errors within 1 % of the screen.
+
+These are idealised numbers. Real detection adds corner bias, blur and rolling-shutter effects, so physical
+measurements are still required.
 
 ## Goal
 

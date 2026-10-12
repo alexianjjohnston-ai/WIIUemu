@@ -1,0 +1,12 @@
+[package]
+name = "wiiu-tracking"
+description = "Screen-relative pointing from AprilTag observations: marker layout, homography, aim estimation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
