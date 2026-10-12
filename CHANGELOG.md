@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Security
+- Server (QA review fixes):
+  - Pad updates are published under the session lock, so a tracking worker can't leave a button held after a
+    disconnect or watchdog release.
+  - Connections idle for 10 s are closed.
+  - Gyro history is capped at 1024 samples, and gyro input at 1000 samples/s.
+  - Camera frames whose JPEG size differs from the header are rejected.
+  - `--token` must be 16–128 URL-safe characters.
 - Phone app: production builds ignore the `?server=` URL override, so a crafted link can't send the pairing
   token to another host.
 
