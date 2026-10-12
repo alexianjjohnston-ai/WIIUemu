@@ -7,6 +7,8 @@ pub mod aim;
 pub mod homography;
 pub mod linalg;
 pub mod markers;
+pub mod tag36h11;
+pub mod tags;
 
 pub use aim::{calibrate_aim_point, estimate_aim, AimConfig, AimError, AimEstimate, TagObservation};
 pub use markers::{BorderConfig, Marker, MarkerLayout};
