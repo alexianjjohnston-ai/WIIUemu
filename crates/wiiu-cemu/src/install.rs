@@ -13,6 +13,7 @@
 use crate::{profile_dir_candidates_for, CemuProfile, Platform, WiimoteProfile};
 use std::fs;
 use std::io;
+use std::net::SocketAddrV4;
 use std::path::{Path, PathBuf};
 
 /// A Cemu installation: its executable and the folder holding `settings.xml` and `controllerProfiles/`.
@@ -97,12 +98,12 @@ pub struct AssignReport {
 /// (`controller1.xml` … `controller3.xml`). Any different existing active config is first copied to
 /// `controllerN.xml.before-wiiu-connect` (once; later runs keep the oldest backup). Controller 1 (the GamePad) is
 /// left alone.
-pub fn assign_wiimotes(install: &CemuInstall) -> io::Result<AssignReport> {
+pub fn assign_wiimotes(install: &CemuInstall, dsu: SocketAddrV4) -> io::Result<AssignReport> {
     let dir = install.profiles_dir();
     fs::create_dir_all(&dir)?;
     let mut report = AssignReport::default();
     for player in 1..=3u8 {
-        let profile = WiimoteProfile::for_player(player);
+        let profile = wiimote_profile(player, dsu);
         let xml = profile.to_xml();
         let named = dir.join(format!("{}.xml", profile.name()));
         fs::write(&named, &xml)?;
@@ -122,10 +123,19 @@ pub fn assign_wiimotes(install: &CemuInstall) -> io::Result<AssignReport> {
     Ok(report)
 }
 
-/// True when Controllers 2–4 already use Wii U Connect's profiles.
-pub fn wiimotes_assigned(install: &CemuInstall) -> bool {
+/// The Wii Remote profile for `player`, pointing Cemu at the DSU server on `dsu`.
+fn wiimote_profile(player: u8, dsu: SocketAddrV4) -> WiimoteProfile {
+    WiimoteProfile {
+        dsu_ip: *dsu.ip(),
+        dsu_port: dsu.port(),
+        ..WiimoteProfile::for_player(player)
+    }
+}
+
+/// True when Controllers 2–4 already use Wii U Connect's profiles for the DSU server on `dsu`.
+pub fn wiimotes_assigned(install: &CemuInstall, dsu: SocketAddrV4) -> bool {
     (1..=3u8).all(|player| {
-        let expected = WiimoteProfile::for_player(player).to_xml();
+        let expected = wiimote_profile(player, dsu).to_xml();
         fs::read_to_string(install.profiles_dir().join(format!("controller{player}.xml"))).is_ok_and(|s| s == expected)
     })
 }
@@ -307,6 +317,8 @@ fn meta_name(path: &Path) -> Option<String> {
 mod tests {
     use super::*;
 
+    const DEFAULT_DSU: SocketAddrV4 = SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, wiiu_dsu::DEFAULT_PORT);
+
     struct TempDir(PathBuf);
     impl TempDir {
         fn new(tag: &str) -> Self {
@@ -376,9 +388,9 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("controller1.xml"), "<user's own config/>").unwrap();
         fs::write(dir.join("controller0.xml"), "<gamepad config/>").unwrap();
-        assert!(!wiimotes_assigned(&i));
+        assert!(!wiimotes_assigned(&i, DEFAULT_DSU));
 
-        let r = assign_wiimotes(&i).unwrap();
+        let r = assign_wiimotes(&i, DEFAULT_DSU).unwrap();
         assert_eq!(r.backups, vec![dir.join("controller1.xml.before-wiiu-connect")]);
         assert_eq!(
             fs::read_to_string(dir.join("controller1.xml.before-wiiu-connect")).unwrap(),
@@ -389,13 +401,28 @@ mod tests {
             "<gamepad config/>",
             "GamePad untouched"
         );
-        assert!(wiimotes_assigned(&i));
+        assert!(wiimotes_assigned(&i, DEFAULT_DSU));
         // Running again changes nothing and keeps the original backup.
-        let again = assign_wiimotes(&i).unwrap();
+        let again = assign_wiimotes(&i, DEFAULT_DSU).unwrap();
         assert!(again.backups.is_empty());
         assert_eq!(
             fs::read_to_string(dir.join("controller1.xml.before-wiiu-connect")).unwrap(),
             "<user's own config/>"
+        );
+    }
+
+    #[test]
+    fn assigned_profiles_follow_the_dsu_endpoint() {
+        let t = TempDir::new("endpoint");
+        let i = portable_windows_install(&t);
+        let custom = SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 12345);
+        assign_wiimotes(&i, custom).unwrap();
+        let xml = fs::read_to_string(i.profiles_dir().join("controller1.xml")).unwrap();
+        assert!(xml.contains("<port>12345</port>"), "{xml}");
+        assert!(wiimotes_assigned(&i, custom));
+        assert!(
+            !wiimotes_assigned(&i, DEFAULT_DSU),
+            "a server on another port is not set up"
         );
     }
 
