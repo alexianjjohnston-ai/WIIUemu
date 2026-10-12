@@ -5,13 +5,14 @@
 //! arrive faster than they can be processed, only the newest is kept (no queue builds up). Gyro samples are
 //! never dropped unless the channel is full.
 
-use crate::session::SessionManager;
+use crate::session::{SessionManager, TrackingDiag};
 use std::collections::VecDeque;
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use wiiu_controller::protocol::{GyroSample, PointerXy, ServerMessage, TrackingState};
 use wiiu_tracking::detect::{decode_jpeg_gray, TagDetector};
+use wiiu_tracking::filter::{OneEuro2, OneEuroConfig};
 use wiiu_tracking::pipeline::{DeviceGyro, Tracker};
 use wiiu_tracking::{BorderConfig, MarkerLayout, PointerState};
 
@@ -20,8 +21,13 @@ const GYRO_ONLY_AFTER: Duration = Duration::from_millis(300);
 const LOST_AFTER: Duration = Duration::from_secs(2);
 const STATUS_INTERVAL: Duration = Duration::from_millis(100);
 const CHANNEL_CAPACITY: usize = 64;
-/// Typical phone main-camera horizontal FOV; only scales gyro-predicted motion between fixes.
+/// Typical phone main-camera FOV across the image's long side (16:9 video); only scales gyro-predicted motion,
+/// and the tracker's online gyro check corrects it.
 const DEFAULT_HFOV_DEG: f64 = 65.0;
+/// Detection settings, chosen with `crates/wiiu-tracking/tests/realistic.rs`: at 540×960 with 1.5× decimation the
+/// whole border is found from 0.8 to 2.5 m in ~17 ms on 4 threads (2.0× decimation lost every tag beyond ~1 m).
+const QUAD_DECIMATE: f32 = 1.5;
+const MAX_DETECTOR_THREADS: usize = 4;
 
 /// Latest tracking status for the phone. A watch channel keeps only the newest value, so a phone that stops
 /// reading can't make status messages pile up in memory.
@@ -76,12 +82,21 @@ struct Worker {
     last_fix: Option<Instant>,
     fixes: VecDeque<Instant>,
     last_status: Instant,
+    smoothing: OneEuro2,
+    epoch: Instant,
+    frames: VecDeque<Instant>,
+    gyro_samples: VecDeque<(Instant, usize)>,
+    detect_ms: f32,
+    frame_size: (u16, u16),
 }
 
 impl Worker {
     fn new(sessions: Arc<SessionManager>, conn_id: u64, slot: usize, status: StatusSender) -> Self {
         let layout = MarkerLayout::border(&BorderConfig::default());
-        let detector = match TagDetector::new() {
+        let threads = std::thread::available_parallelism()
+            .map(|n| (n.get() / 2).clamp(1, MAX_DETECTOR_THREADS))
+            .unwrap_or(1);
+        let detector = match TagDetector::with_options(QUAD_DECIMATE, threads as u8) {
             Ok(d) => Some(d),
             Err(e) => {
                 tracing::error!("slot {slot}: AprilTag detector unavailable: {e}");
@@ -99,6 +114,12 @@ impl Worker {
             last_fix: None,
             fixes: VecDeque::new(),
             last_status: Instant::now(),
+            smoothing: OneEuro2::new(OneEuroConfig::default()),
+            epoch: Instant::now(),
+            frames: VecDeque::new(),
+            gyro_samples: VecDeque::new(),
+            detect_ms: 0.0,
+            frame_size: (0, 0),
         }
     }
 
@@ -119,6 +140,7 @@ impl Worker {
                 }
             }
             if !gyro.is_empty() {
+                self.gyro_samples.push_back((Instant::now(), gyro.len()));
                 let samples: Vec<DeviceGyro> = gyro
                     .iter()
                     .map(|g| DeviceGyro {
@@ -145,6 +167,9 @@ impl Worker {
         let Some(detector) = self.detector.as_mut() else {
             return;
         };
+        let started = Instant::now();
+        self.frames.push_back(started);
+        self.frame_size = (width, height);
         if self.tracker.image_size() != (width, height) {
             self.tracker = Tracker::new(self.layout.clone(), width, height, DEFAULT_HFOV_DEG);
         }
@@ -156,6 +181,12 @@ impl Worker {
             }
         };
         let observations = detector.detect(&gray, usize::from(width), usize::from(height));
+        let ms = started.elapsed().as_secs_f32() * 1000.0;
+        self.detect_ms = if self.detect_ms == 0.0 {
+            ms
+        } else {
+            0.9 * self.detect_ms + 0.1 * ms
+        };
         if self.tracker.on_observations(capture_us, &observations).is_ok() {
             let now = Instant::now();
             self.last_fix = Some(now);
@@ -163,12 +194,23 @@ impl Worker {
         }
     }
 
-    fn state(&self, now: Instant) -> (TrackingState, Option<(f32, f32)>) {
+    fn state(&mut self, now: Instant) -> (TrackingState, Option<(f32, f32)>) {
         let age = self.last_fix.map(|t| now.saturating_duration_since(t));
-        let pointer = match self.tracker.state() {
+        let raw = match self.tracker.state() {
+            PointerState::Tracking { x, y } | PointerState::GyroOnly { x, y } => Some([x, y]),
             PointerState::Lost => None,
-            s => s.pointer().map(|(x, y)| (x as f32, y as f32)),
         };
+        // Smooth before the on-screen check, so the filter doesn't restart at every screen edge crossing.
+        let smoothed = match raw {
+            Some(p) => Some(self.smoothing.filter(now.duration_since(self.epoch).as_secs_f64(), p)),
+            None => {
+                self.smoothing.reset();
+                None
+            }
+        };
+        let pointer = smoothed
+            .filter(|[x, y]| (0.0..=1.0).contains(x) && (0.0..=1.0).contains(y))
+            .map(|[x, y]| (x as f32, y as f32));
         match age {
             None => (TrackingState::Lost, None),
             Some(a) if a >= LOST_AFTER => (TrackingState::Lost, None),
@@ -179,12 +221,15 @@ impl Worker {
 
     fn publish(&mut self) {
         let now = Instant::now();
-        while self
-            .fixes
-            .front()
-            .is_some_and(|t| now.saturating_duration_since(*t) > Duration::from_secs(1))
-        {
+        let second_ago = |t: &Instant| now.saturating_duration_since(*t) > Duration::from_secs(1);
+        while self.fixes.front().is_some_and(second_ago) {
             self.fixes.pop_front();
+        }
+        while self.frames.front().is_some_and(second_ago) {
+            self.frames.pop_front();
+        }
+        while self.gyro_samples.front().is_some_and(|(t, _)| second_ago(t)) {
+            self.gyro_samples.pop_front();
         }
         let (state, pointer) = self.state(now);
         // The session decides whether this pointer applies (only while camera frames keep arriving).
@@ -197,6 +242,20 @@ impl Worker {
                 tags: self.tracker.last_tag_count() as u32,
                 fixes_per_s: self.fixes.len() as f32,
             }));
+            let m = self.tracker.gyro_map();
+            self.sessions.set_tracking_diag(
+                self.conn_id,
+                self.slot,
+                TrackingDiag {
+                    frame: [self.frame_size.0, self.frame_size.1],
+                    frames_per_s: self.frames.len() as f32,
+                    fixes_per_s: self.fixes.len() as f32,
+                    tags: self.tracker.last_tag_count() as u32,
+                    detect_ms: self.detect_ms,
+                    gyro_per_s: self.gyro_samples.iter().map(|(_, n)| *n).sum::<usize>() as f32,
+                    gyro_map: m.map(|row| row.map(|v| v as f32)),
+                },
+            );
         }
     }
 }

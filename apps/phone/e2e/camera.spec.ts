@@ -13,7 +13,7 @@ test.describe('camera pointing', () => {
     await expect.poll(() => server.frames.length, { timeout: 5000 }).toBeGreaterThan(5);
     const f = server.frames[0];
     expect(f?.jpegMagic).toBe(true);
-    expect(Math.max(f?.width ?? 0, f?.height ?? 0)).toBeLessThanOrEqual(640);
+    expect(Math.max(f?.width ?? 0, f?.height ?? 0)).toBeLessThanOrEqual(960);
     await expect(page.getByTestId('camera-status')).toHaveAttribute('data-kind', 'waiting');
 
     server.sendTracking({ state: 'tracking', pointer: { x: 0.4, y: 0.6 }, tags: 9, fixes_per_s: 28.6 });

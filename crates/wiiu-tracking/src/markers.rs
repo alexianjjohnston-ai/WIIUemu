@@ -30,7 +30,8 @@ pub struct MarkerLayout {
 pub struct BorderConfig {
     /// Game image width / height.
     pub aspect: f64,
-    /// Tag edge length as a fraction of the game image height.
+    /// Tag edge length as a fraction of the game image height. Default 0.20: with a phone held upright 1–2.5 m
+    /// from a monitor, smaller tags are only a few camera pixels wide (see `tests/realistic.rs`).
     pub tag_size: f64,
     /// Gap between game image and tags, as a fraction of the game image height.
     pub gap: f64,
@@ -46,7 +47,7 @@ impl Default for BorderConfig {
     fn default() -> Self {
         Self {
             aspect: 16.0 / 9.0,
-            tag_size: 0.10,
+            tag_size: 0.20,
             gap: 0.01,
             per_horizontal_edge: 4,
             per_vertical_edge: 3,

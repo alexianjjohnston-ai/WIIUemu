@@ -6,6 +6,7 @@
 pub mod aim;
 #[cfg(feature = "detector")]
 pub mod detect;
+pub mod filter;
 pub mod fusion;
 pub mod homography;
 pub mod linalg;

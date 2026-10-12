@@ -7,12 +7,16 @@
 <style>
   html, body { margin: 0; height: 100%; background: #0d0f12; overflow: hidden; }
   canvas { display: block; width: 100vw; height: 100vh; }
-  #hint { position: fixed; left: 50%; bottom: 14%; transform: translateX(-50%); color: #9aa1ab;
+  /* Both texts are placed inside the game area by resize(), never over the tags (text there hurts detection). */
+  #hint { position: fixed; left: 50%; transform: translate(-50%, -100%); color: #9aa1ab;
           font: 15px/1.4 system-ui, sans-serif; text-align: center; pointer-events: none; }
+  #diag { position: fixed; left: 50%; transform: translateX(-50%); color: #c4cad2;
+          font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre; pointer-events: none; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="diag"></div>
 <div id="hint">Show this page fullscreen on the TV (F11). Point a phone at the screen: each player's pointer appears as a coloured ring.<br>
 Double-click to toggle fullscreen.</div>
 <script>
@@ -46,6 +50,9 @@ function resize() {
     ox: (canvas.width - (maxX - minX) * s) / 2 - minX * s,
     oy: (canvas.height - (maxY - minY) * s) / 2 - minY * s,
   };
+  const dpr2 = window.devicePixelRatio || 1;
+  document.getElementById('diag').style.top = `${px(0.5, 0.04)[1] / dpr2}px`;
+  document.getElementById('hint').style.top = `${px(0.5, 0.96)[1] / dpr2}px`;
 }
 
 // game-normalised -> canvas px
@@ -98,8 +105,20 @@ function draw() {
   }
 }
 
+// Per-player tracking numbers, for diagnosing real-world tracking (screenshot this when reporting problems).
+function showDiag() {
+  const f = (v, d = 0) => Number(v).toFixed(d);
+  const lines = slots.filter((s) => s.connected && s.tracking).map((s) => {
+    const t = s.tracking, m = t.gyro_map;
+    return `P${s.player}  ${t.frame[0]}x${t.frame[1]}  frames ${f(t.frames_per_s)}/s  fixes ${f(t.fixes_per_s)}/s` +
+      `  tags ${t.tags}  detect ${f(t.detect_ms)} ms  gyro ${f(t.gyro_per_s)}/s` +
+      `  gyro map [${f(m[0][0], 2)} ${f(m[0][1], 2)}; ${f(m[1][0], 2)} ${f(m[1][1], 2)}]`;
+  });
+  document.getElementById('diag').textContent = lines.join('\n');
+}
+
 async function poll() {
-  try { slots = await (await fetch('/api/status', { cache: 'no-store' })).json(); } catch { /* retry */ }
+  try { slots = await (await fetch('/api/status', { cache: 'no-store' })).json(); showDiag(); } catch { /* retry */ }
   setTimeout(poll, 50);
 }
 

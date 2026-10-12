@@ -42,7 +42,7 @@ fn jpeg(gray: &[u8], quality: u8) -> Vec<u8> {
 #[test]
 fn jpeg_frame_produces_centre_pointer() {
     let layout = MarkerLayout::border(&BorderConfig::default());
-    let data = jpeg(&render_frontal_gray(&layout, H as f64 * 0.7), 75);
+    let data = jpeg(&render_frontal_gray(&layout, H as f64 * 0.55), 75);
     assert!(
         data.len() < 65_536,
         "fits the protocol payload limit: {} bytes",

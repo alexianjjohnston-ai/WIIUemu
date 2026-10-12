@@ -43,7 +43,7 @@ fn detect(img: &[u8]) -> Vec<TagObservation> {
 #[test]
 fn real_detector_finds_every_rendered_tag_with_matching_corner_order() {
     let layout = MarkerLayout::border(&BorderConfig::default());
-    let (img, to_px) = render_frontal(&layout, H as f64 * 0.7);
+    let (img, to_px) = render_frontal(&layout, H as f64 * 0.55);
     let obs = detect(&img);
     let mut ids: Vec<u32> = obs.iter().map(|o| o.id).collect();
     ids.sort_unstable();
@@ -64,7 +64,7 @@ fn real_detector_finds_every_rendered_tag_with_matching_corner_order() {
 #[test]
 fn detected_tags_give_the_expected_aim_point() {
     let layout = MarkerLayout::border(&BorderConfig::default());
-    let scale = H as f64 * 0.7;
+    let scale = H as f64 * 0.55;
     let (img, to_px) = render_frontal(&layout, scale);
     let obs = detect(&img);
     // Aim at the image centre, which is the game centre in this frontal render.

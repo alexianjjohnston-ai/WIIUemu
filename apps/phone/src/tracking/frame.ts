@@ -31,13 +31,20 @@ export function encodeCameraFrame(header: FrameHeader, jpeg: Uint8Array): Uint8A
 }
 
 /**
+ * Default long side of sent frames. With the phone upright, the screen spans the frame's short side, so at 640 the
+ * border tags were only a few pixels wide beyond ~1 m; 960 keeps them detectable to ~2.5 m
+ * (crates/wiiu-tracking/tests/realistic.rs).
+ */
+export const DEFAULT_MAX_LONG_SIDE = 960;
+
+/**
  * Size to scale a camera image to: the long side at most `maxLongSide`, aspect kept, even dimensions, and inside
  * the protocol's width/height ranges. Returns null when the source can't fit (e.g. an extreme aspect ratio).
  */
 export function fitFrameSize(
   srcWidth: number,
   srcHeight: number,
-  maxLongSide = 640,
+  maxLongSide = DEFAULT_MAX_LONG_SIDE,
 ): { width: number; height: number } | null {
   if (!(srcWidth > 0 && srcHeight > 0)) return null;
   const scale = Math.min(1, maxLongSide / Math.max(srcWidth, srcHeight));

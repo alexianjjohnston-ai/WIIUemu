@@ -26,11 +26,11 @@ describe('encodeCameraFrame', () => {
 });
 
 describe('fitFrameSize', () => {
-  it('scales the long side to 640 and keeps even dimensions', () => {
-    expect(fitFrameSize(1920, 1080)).toEqual({ width: 640, height: 360 });
-    expect(fitFrameSize(1080, 1920)).toEqual({ width: 360, height: 640 });
+  it('scales the long side to 960 by default and keeps even dimensions', () => {
+    expect(fitFrameSize(1920, 1080)).toEqual({ width: 960, height: 540 });
+    expect(fitFrameSize(1080, 1920)).toEqual({ width: 540, height: 960 });
     expect(fitFrameSize(640, 480)).toEqual({ width: 640, height: 480 });
-    expect(fitFrameSize(1279, 721)).toEqual({ width: 640, height: 360 });
+    expect(fitFrameSize(1279, 721, 640)).toEqual({ width: 640, height: 360 });
   });
 
   it('never upscales and rejects sizes the server would reject', () => {

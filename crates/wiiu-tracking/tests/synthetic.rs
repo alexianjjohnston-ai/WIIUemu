@@ -440,3 +440,75 @@ fn tracker_replays_gyro_recorded_after_the_late_frame() {
     };
     assert_eq!((x, y), (x2, y2));
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Tracker: online gyro check (phones report sensor axes/units differently; the tracker must notice and adapt)
+
+/// Sweeps the synthetic camera for `secs` with 200 Hz gyro and 30 fps fixes. `report` turns the true device rate
+/// into what a (possibly faulty) phone reports. Returns the tracker and the mean pointer error measured just before
+/// each fix (pure gyro prediction over 33 ms), over the last second.
+fn sweep(secs: f64, mut report: impl FnMut([f64; 3]) -> [f64; 3]) -> (wiiu_tracking::pipeline::Tracker, f64) {
+    use wiiu_tracking::pipeline::{DeviceGyro, Tracker};
+    let mut cam = start_cam();
+    let mut tracker = Tracker::new(layout(), W as u16, H as u16, 2.0 * (W / 2.0 / F).atan().to_degrees());
+    let steps = (secs * 200.0) as u64;
+    let (mut err_sum, mut err_n) = (0.0, 0);
+    for step in 1..=steps {
+        let t = step as f64 / 200.0;
+        let w_cam = [
+            0.5 * (2.0 * std::f64::consts::PI * 0.7 * t).sin(),
+            0.7 * (2.0 * std::f64::consts::PI * 0.5 * t).cos(),
+            0.0,
+        ];
+        spin(&mut cam, w_cam, 0.005);
+        let w_device = [w_cam[0], -w_cam[1], -w_cam[2]];
+        let t_us = step * 5_000;
+        tracker.on_gyro(&[DeviceGyro {
+            t_us,
+            rate: report(w_device),
+        }]);
+        if step % 7 == 0 {
+            if t > secs - 1.0 {
+                if let (Some(truth), Some((x, y))) = (cam.hit([W / 2.0, H / 2.0]), tracker.state().pointer()) {
+                    err_sum += (x - truth[0]).hypot(y - truth[1]);
+                    err_n += 1;
+                }
+            }
+            let _ = tracker.on_observations(t_us, &cam.observe(&layout(), &mut || 0.0));
+        }
+    }
+    (tracker, err_sum / err_n.max(1) as f64)
+}
+
+#[test]
+fn gyro_check_keeps_an_honest_gyro() {
+    let (tracker, err) = sweep(4.0, |w| w);
+    let m = tracker.gyro_map();
+    assert!((m[0][0] - 1.0).abs() < 0.15 && (m[1][1] - 1.0).abs() < 0.15, "{m:?}");
+    assert!(m[0][1].abs() < 0.15 && m[1][0].abs() < 0.15, "{m:?}");
+    assert!(err < 0.002, "prediction error {err}");
+}
+
+#[test]
+fn gyro_check_corrects_a_flipped_axis_and_wrong_units() {
+    // Phone reports yaw with the wrong sign and everything 3× too large.
+    let (_, err_hold) = sweep(4.0, |_| [0.0; 3]);
+    let (tracker, err) = sweep(4.0, |w| [3.0 * w[0], -3.0 * w[1], 3.0 * w[2]]);
+    let m = tracker.gyro_map();
+    assert!((m[0][0] + 1.0 / 3.0).abs() < 0.1, "x gain {m:?}");
+    assert!((m[1][1] - 1.0 / 3.0).abs() < 0.1, "y gain {m:?}");
+    assert!(
+        err < 0.25 * err_hold,
+        "corrected gyro {err} vs holding still {err_hold}"
+    );
+}
+
+#[test]
+fn gyro_check_ignores_a_gyro_that_predicts_nothing() {
+    let mut rng = Lcg(7);
+    let (tracker, err) = sweep(4.0, |_| [rng.gauss(0.6), rng.gauss(0.6), rng.gauss(0.6)]);
+    let (_, err_hold) = sweep(4.0, |_| [0.0; 3]);
+    let m = tracker.gyro_map();
+    assert!(m.iter().flatten().all(|v| v.abs() < 0.2), "{m:?}");
+    assert!(err < 1.5 * err_hold, "noise gyro {err} vs holding still {err_hold}");
+}
