@@ -82,6 +82,25 @@ Cemu sources: `cemu-project/Cemu` at commit `aa20e2f86e93` (2026-10-10).
 
 `wiiu_cemu::profile_dir_candidates_for` mirrors this.
 
+## 5c. Setting up a Cemu install (source-verified, Cemu commit `21878f1`)
+
+Used by the setup page (`crates/wiiu-cemu/src/install.rs`, `crates/wiiu-connect/src/setup.rs`):
+
+- **Active controller per player:** `InputManager::load(player_index)` reads
+  `controllerProfiles/controller{N}.xml`, where N = 0 is "Controller 1". This is the same XML format as named
+  profiles (src/input/InputManager.cpp). Wii U Connect writes its Wii Remote profiles to `controller1..3.xml`,
+  after backing up different existing files.
+- **Game folders:** `CemuConfig::Load` / `Save` keep them in `settings.xml` under
+  `<content><GamePaths><Entry>…</Entry></GamePaths>` (src/config/CemuConfig.cpp). Missing settings use their
+  defaults. A missing `settings.xml` triggers the first-start dialog (`isFirstStart` in
+  src/gui/wxgui/CemuApp.cpp), and an existing one makes Cemu create the default MLC files
+  (`InitializeExistingMLCOrFail`).
+- **Command line:** `-g <path>` launches a game, `-f` fullscreen (src/config/LaunchSettings.cpp).
+- **Release files:** `cemu-<ver>-windows-x64.zip` (one top folder containing `Cemu.exe`),
+  `Cemu-<ver>-x86_64.AppImage` and `cemu-<ver>-macos-12-<arch>.dmg` (.github/workflows/deploy_release.yml).
+  The setup page installs the Windows zip and the AppImage automatically; macOS users install the dmg themselves
+  and locate it.
+
 ## 6. GamePad touchscreen via DSU (source-verified, groundwork for Milestone 5)
 
 - `VPADController` (`src/input/emulated/VPADController.cpp`): when the bound controller has a position, it sets

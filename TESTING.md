@@ -1,26 +1,33 @@
 # Testing Wii U Connect (developer preview)
 
-Nothing here has been verified on real phones or in Cemu yet. That is what this test is for.
+Wii U Connect never downloads games, keys or Nintendo system files. Use dumps of games you own, for example made
+with Dumpling on your own Wii U.
 
-## 1. Start the server
+## 1. Start it
 
-- **Windows:** unzip `wiiu-connect-windows-x64.zip` and double-click `wiiu-connect.exe`. If Windows asks about
-  network access, allow it on private networks.
+- **Windows:** unzip `wiiu-connect-windows-x64.zip` and double-click `wiiu-connect.exe`. It's a single file. If
+  Windows asks about network access, allow it on private networks.
 - **macOS:** unzip `wiiu-connect-macos-universal.zip`, then in Terminal, in that folder:
   `xattr -d com.apple.quarantine wiiu-connect && ./wiiu-connect`. Allow incoming connections when asked.
 
-Keep the window open. It shows a QR code and the addresses below.
+Keep the window open. The **setup page** opens in your browser. If it doesn't, go to `http://localhost:8737`.
 
-## 2. Set up Cemu (once)
+## 2. Setup page
 
-In a second terminal, in the same folder, run `.\wiiu-connect.exe cemu-profile` on Windows (PowerShell) or
-`./wiiu-connect cemu-profile` on macOS. It writes `WiiUConnect_Wiimote1..3` and `WiiUConnect_GamePad` into Cemu's
-`controllerProfiles` folder. If it can't find the folder, add `--dir "<Cemu folder>/controllerProfiles"`.
+1. **Cemu emulator:**
+   - **Windows:** click **Download & install Cemu**. This fetches the official release from
+     github.com/cemu-project/Cemu into Wii U Connect's own folder, and sets up the controllers automatically.
+   - **Mac, or if you already have Cemu:** open "I already have Cemu" and click **Use this Cemu**. A folder picker
+     opens, or you can type the path.
+2. **Controllers:** click **Set up controllers** if it doesn't say "Ready". Cemu's Controllers 2–4 become the phone
+   Wii Remotes, and any existing settings are backed up first. Controller 1 (the GamePad) stays on your keyboard:
+   set it up once in Cemu under **Options → Input settings**.
+3. **Your games:** click **Add game folder** and pick the folder with your own dumps (`.wua` files or unpacked
+   games). Encrypted `.wud`/`.wux` images also need your console's keys in Cemu's `keys.txt`.
+4. **Phones:** open the pairing page link and scan the QR code (step 3 below).
+5. **Play:** click **Play** next to a game.
 
-In Cemu, open **Options → Input settings**, select **Controller 2**, set it to **Wiimote**, and load
-**WiiUConnect_Wiimote1**. Keep Controller 1 as the GamePad on your keyboard: the GamePad phone isn't built yet.
-
-## 3. Buttons
+## 3. Buttons and phones
 
 1. Mouse test, no phone needed: on the PC, open `http://localhost:8737/dev/pointer`. The mouse aims, left click
    is A, right click is B.
