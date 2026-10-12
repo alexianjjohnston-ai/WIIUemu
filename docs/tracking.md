@@ -19,6 +19,11 @@ cannot see the markers. There are two workable grips:
 
 This must be validated physically with real phones before the controller UI is finalised.
 
+## Decision: detection runs on the PC
+
+See [ADR-0001](adr/0001-apriltag-detection-on-pc.md). The native AprilTag detector found all 10 rendered tags (IDs
+and corner order verified) in 1.13 ms per 640×360 frame in the dev container.
+
 ## Implemented (crates/wiiu-tracking)
 
 | Module | What it does | Tests |

@@ -8,7 +8,7 @@ use crate::linalg::Vec2;
 
 /// Corner order of a tag observation. Matches the AprilTag library's `apriltag_detection_t.p` order
 /// (tag frame x right / y down: (-1, 1), (1, 1), (1, -1), (-1, -1)), i.e. bottom-left, bottom-right,
-/// top-right, top-left of the upright tag. **To be re-verified against the detector when it is integrated.**
+/// top-right, top-left of the upright tag. Verified against the real detector in `tests/detector.rs`.
 pub const CORNER_ORDER: [&str; 4] = ["bottom-left", "bottom-right", "top-right", "top-left"];
 
 #[derive(Debug, Clone, PartialEq)]

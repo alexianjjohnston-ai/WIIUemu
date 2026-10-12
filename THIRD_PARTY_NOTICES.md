@@ -8,6 +8,12 @@
 > Copyright (C) 2013-2016, The Regents of The University of Michigan. All rights reserved.
 > Licensed under the BSD 2-Clause License. The full notice is reproduced at the top of the generated file.
 
+## AprilTag C library (tests, and the planned PC-side detector)
+
+The `apriltag` / `apriltag-sys` crates compile a vendored copy of the AprilTag C library (BSD 2-Clause, same
+copyright holder as above). Currently a dev-dependency only (`crates/wiiu-tracking/tests/detector.rs`); see
+`docs/adr/0001-apriltag-detection-on-pc.md`.
+
 ## Cemu
 
 Wii U Connect does not include Cemu code. Packet layouts and profile formats were implemented from reading the
