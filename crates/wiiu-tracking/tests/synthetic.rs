@@ -399,3 +399,44 @@ fn markers_lost_switches_to_gyro_only_then_lost() {
     assert_eq!(fusion.state(), PointerState::Lost);
     assert_eq!(fusion.state().pointer(), None);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Tracker: latency compensation (frame arrives after the gyro samples recorded since its capture)
+
+#[test]
+fn tracker_replays_gyro_recorded_after_the_late_frame() {
+    use wiiu_tracking::pipeline::{DeviceGyro, Tracker};
+    let mut cam = start_cam();
+    let mut tracker = Tracker::new(layout(), W as u16, H as u16, 2.0 * (W / 2.0 / F).atan().to_degrees());
+    // Frame captured at t = 1 s.
+    let capture_us = 1_000_000u64;
+    let obs_at_capture = cam.observe(&layout(), &mut || 0.0);
+    // The phone keeps turning for 80 ms (network + detection latency); gyro arrives first.
+    let w_cam = [0.4, -0.6, 0.3];
+    let w_device = [w_cam[0], -w_cam[1], -w_cam[2]]; // inverse of device_to_camera
+    let mut gyro = Vec::new();
+    for i in 1..=16 {
+        spin(&mut cam, w_cam, 0.005);
+        gyro.push(DeviceGyro {
+            t_us: capture_us + i * 5_000,
+            rate: w_device,
+        });
+    }
+    tracker.on_gyro(&gyro);
+    tracker.on_observations(capture_us, &obs_at_capture).unwrap();
+    let truth_now = cam.hit([W / 2.0, H / 2.0]).unwrap();
+    let PointerState::Tracking { x, y } = tracker.state() else {
+        panic!("{:?}", tracker.state())
+    };
+    assert!(
+        (x - truth_now[0]).abs() < 1e-6 && (y - truth_now[1]).abs() < 1e-6,
+        "({x},{y}) vs {truth_now:?}"
+    );
+
+    // An older frame arriving late must not rewind the pointer.
+    tracker.on_observations(capture_us - 50_000, &obs_at_capture).unwrap();
+    let PointerState::Tracking { x: x2, y: y2 } = tracker.state() else {
+        panic!()
+    };
+    assert_eq!((x, y), (x2, y2));
+}

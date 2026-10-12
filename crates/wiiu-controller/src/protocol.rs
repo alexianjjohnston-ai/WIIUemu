@@ -4,7 +4,10 @@ use crate::buttons::{ButtonSet, GamepadButton, WiimoteButton};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const PROTOCOL_VERSION: u32 = 1;
+/// Newest protocol version this crate speaks. Version 2 adds camera tracking (`camera_frame`, `gyro`, `tracking`).
+pub const PROTOCOL_VERSION: u32 = 2;
+/// Oldest protocol version still accepted.
+pub const MIN_PROTOCOL_VERSION: u32 = 1;
 /// Frames larger than this are rejected before parsing.
 pub const MAX_FRAME_BYTES: usize = 4096;
 pub const MAX_BUTTONS: usize = 16;
@@ -27,7 +30,13 @@ pub enum Role {
 pub enum ClientMessage {
     Hello(Hello),
     Input(RawInput),
-    Ping { id: u64 },
+    Ping {
+        id: u64,
+    },
+    /// Protocol ≥ 2: gyro samples `[t_us, rate_x, rate_y, rate_z]`, rad/s, W3C device frame.
+    Gyro {
+        samples: Vec<[f64; 4]>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -81,6 +90,13 @@ pub enum ServerMessage {
     Pong {
         id: u64,
     },
+    /// Protocol ≥ 2: camera-tracking feedback for the phone UI.
+    Tracking {
+        state: TrackingState,
+        pointer: Option<PointerXy>,
+        tags: u32,
+        fixes_per_s: f32,
+    },
     Error {
         code: ErrorCode,
         message: String,
@@ -98,6 +114,20 @@ impl ServerMessage {
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("server messages always serialize")
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackingState {
+    Tracking,
+    GyroOnly,
+    Lost,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct PointerXy {
+    pub x: f32,
+    pub y: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -149,7 +179,7 @@ pub fn parse_client_message(frame: &str) -> Result<ClientMessage, ProtocolError>
 
 impl Hello {
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        if self.protocol != PROTOCOL_VERSION {
+        if !(MIN_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&self.protocol) {
             return Err(ProtocolError::UnsupportedProtocol(self.protocol));
         }
         let id = &self.device_id;
@@ -258,6 +288,116 @@ impl RawInput {
     }
 }
 
+/// Most gyro samples accepted per message, and the largest plausible rate (≈ 2000 °/s).
+pub const MAX_GYRO_SAMPLES: usize = 64;
+pub const MAX_GYRO_RAD_S: f64 = 35.0;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GyroSample {
+    pub t_us: u64,
+    /// rad/s, W3C device frame (x right, y up, z out of the screen).
+    pub rate: [f64; 3],
+}
+
+/// Validates a `gyro` message's samples (finite, bounded, strictly increasing timestamps).
+pub fn validate_gyro(samples: &[[f64; 4]], last_t_us: Option<u64>) -> Result<Vec<GyroSample>, ProtocolError> {
+    if samples.is_empty() || samples.len() > MAX_GYRO_SAMPLES {
+        return Err(invalid("samples", format!("1-{MAX_GYRO_SAMPLES} samples required")));
+    }
+    let mut prev = last_t_us;
+    samples
+        .iter()
+        .map(|s| {
+            let t = s[0];
+            if !(t.is_finite() && t >= 0.0 && t <= MAX_SAFE_INTEGER as f64 && t.fract() == 0.0) {
+                return Err(invalid(
+                    "samples",
+                    "timestamp must be an integer number of microseconds",
+                ));
+            }
+            let t = t as u64;
+            if prev.is_some_and(|p| t <= p) {
+                return Err(invalid("samples", "timestamps must strictly increase"));
+            }
+            prev = Some(t);
+            let rate = [s[1], s[2], s[3]];
+            if rate.iter().any(|r| !r.is_finite() || r.abs() > MAX_GYRO_RAD_S) {
+                return Err(invalid(
+                    "samples",
+                    format!("rates must be finite and within ±{MAX_GYRO_RAD_S} rad/s"),
+                ));
+            }
+            Ok(GyroSample { t_us: t, rate })
+        })
+        .collect()
+}
+
+pub const CAMERA_FRAME_HEADER: usize = 20;
+pub const MAX_CAMERA_PAYLOAD: usize = 65_536;
+pub const MAX_CAMERA_FRAME_BYTES: usize = CAMERA_FRAME_HEADER + MAX_CAMERA_PAYLOAD;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CameraFrame<'a> {
+    pub width: u16,
+    pub height: u16,
+    pub seq: u32,
+    pub capture_us: u64,
+    /// JPEG data.
+    pub jpeg: &'a [u8],
+}
+
+/// Parses a binary `camera_frame` (protocol ≥ 2). See `docs/controller-protocol.md`.
+pub fn parse_camera_frame(frame: &[u8]) -> Result<CameraFrame<'_>, ProtocolError> {
+    if frame.len() > MAX_CAMERA_FRAME_BYTES {
+        return Err(ProtocolError::TooLarge);
+    }
+    if frame.len() <= CAMERA_FRAME_HEADER {
+        return Err(ProtocolError::Malformed("camera frame too short".into()));
+    }
+    let u16_at = |o: usize| u16::from_le_bytes([frame[o], frame[o + 1]]);
+    if frame[0] != 1 {
+        return Err(invalid("kind", "must be 1 (camera frame)"));
+    }
+    if frame[1] != 1 {
+        return Err(invalid("format", "must be 1 (JPEG)"));
+    }
+    let (width, height) = (u16_at(2), u16_at(4));
+    if !(160..=1280).contains(&width) || !(120..=960).contains(&height) {
+        return Err(invalid(
+            "width/height",
+            format!("{width}x{height} outside 160x120..1280x960"),
+        ));
+    }
+    if u16_at(6) != 0 {
+        return Err(invalid("reserved", "must be 0"));
+    }
+    let seq = u32::from_le_bytes(frame[8..12].try_into().expect("4 bytes"));
+    let capture_us = u64::from_le_bytes(frame[12..20].try_into().expect("8 bytes"));
+    if capture_us > MAX_SAFE_INTEGER {
+        return Err(invalid("capture_us", "exceeds 2^53 - 1"));
+    }
+    Ok(CameraFrame {
+        width,
+        height,
+        seq,
+        capture_us,
+        jpeg: &frame[CAMERA_FRAME_HEADER..],
+    })
+}
+
+/// Builds a binary `camera_frame` (used by tests and tools; phones build the same layout in TypeScript).
+pub fn encode_camera_frame(width: u16, height: u16, seq: u32, capture_us: u64, jpeg: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(CAMERA_FRAME_HEADER + jpeg.len());
+    out.extend_from_slice(&[1, 1]);
+    out.extend_from_slice(&width.to_le_bytes());
+    out.extend_from_slice(&height.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&seq.to_le_bytes());
+    out.extend_from_slice(&capture_us.to_le_bytes());
+    out.extend_from_slice(jpeg);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,11 +432,11 @@ mod tests {
         };
         assert_eq!(
             Hello {
-                protocol: 2,
+                protocol: 3,
                 ..base.clone()
             }
             .validate(),
-            Err(ProtocolError::UnsupportedProtocol(2))
+            Err(ProtocolError::UnsupportedProtocol(3))
         );
         assert!(Hello {
             device_id: "short".into(),
@@ -414,6 +554,87 @@ mod tests {
         ));
         let huge = format!(r#"{{"type":"ping","id":1,"pad":"{}"}}"#, "x".repeat(MAX_FRAME_BYTES));
         assert_eq!(parse_client_message(&huge), Err(ProtocolError::TooLarge));
+    }
+
+    #[test]
+    fn gyro_validation() {
+        let ok = validate_gyro(&[[100.0, 0.1, -0.2, 0.3], [200.0, 0.0, 0.0, 0.0]], Some(50)).unwrap();
+        assert_eq!(ok[1].t_us, 200);
+        assert_eq!(ok[0].rate, [0.1, -0.2, 0.3]);
+        assert!(validate_gyro(&[], None).is_err());
+        assert!(
+            validate_gyro(&[[100.0, 0.0, 0.0, 0.0]], Some(100)).is_err(),
+            "not increasing across messages"
+        );
+        assert!(validate_gyro(&[[200.0, 0.0, 0.0, 0.0], [150.0, 0.0, 0.0, 0.0]], None).is_err());
+        assert!(validate_gyro(&[[1.5, 0.0, 0.0, 0.0]], None).is_err(), "fractional µs");
+        assert!(
+            validate_gyro(&[[1.0, 99.0, 0.0, 0.0]], None).is_err(),
+            "implausible rate"
+        );
+        assert!(validate_gyro(&vec![[1.0, 0.0, 0.0, 0.0]; 65], None).is_err());
+        let m = parse_client_message(r#"{"type":"gyro","samples":[[1,0.1,0.2,0.3]]}"#).unwrap();
+        assert!(matches!(m, ClientMessage::Gyro { samples } if samples.len() == 1));
+    }
+
+    #[test]
+    fn camera_frame_round_trip_and_rejection() {
+        let jpeg = [0xFF, 0xD8, 0xFF, 0xD9];
+        let bytes = encode_camera_frame(640, 360, 7, 123_456, &jpeg);
+        assert_eq!(bytes.len(), CAMERA_FRAME_HEADER + 4);
+        let f = parse_camera_frame(&bytes).unwrap();
+        assert_eq!(
+            (f.width, f.height, f.seq, f.capture_us, f.jpeg),
+            (640, 360, 7, 123_456, &jpeg[..])
+        );
+
+        assert!(parse_camera_frame(&bytes[..CAMERA_FRAME_HEADER]).is_err(), "no payload");
+        let mut bad = bytes.clone();
+        bad[0] = 2;
+        assert!(parse_camera_frame(&bad).is_err());
+        let mut bad = bytes.clone();
+        bad[1] = 9;
+        assert!(parse_camera_frame(&bad).is_err());
+        assert!(parse_camera_frame(&encode_camera_frame(4000, 360, 1, 1, &jpeg)).is_err());
+        assert!(parse_camera_frame(&encode_camera_frame(640, 100, 1, 1, &jpeg)).is_err());
+        let mut bad = bytes.clone();
+        bad[6] = 1;
+        assert!(parse_camera_frame(&bad).is_err(), "reserved must be zero");
+        let huge = encode_camera_frame(640, 360, 1, 1, &vec![0u8; MAX_CAMERA_PAYLOAD + 1]);
+        assert_eq!(parse_camera_frame(&huge), Err(ProtocolError::TooLarge));
+        assert!(parse_camera_frame(&encode_camera_frame(640, 360, 1, u64::MAX, &jpeg)).is_err());
+    }
+
+    #[test]
+    fn accepts_protocol_one_and_two_only() {
+        let mut h = Hello {
+            protocol: 1,
+            token: "t".into(),
+            role: Role::Wiimote,
+            device_id: "abcdefgh".into(),
+            name: None,
+        };
+        assert!(h.validate().is_ok());
+        h.protocol = 2;
+        assert!(h.validate().is_ok());
+        h.protocol = 3;
+        assert_eq!(h.validate(), Err(ProtocolError::UnsupportedProtocol(3)));
+        h.protocol = 0;
+        assert!(h.validate().is_err());
+    }
+
+    #[test]
+    fn tracking_message_serializes_per_spec() {
+        let m = ServerMessage::Tracking {
+            state: TrackingState::GyroOnly,
+            pointer: Some(PointerXy { x: 0.5, y: 0.25 }),
+            tags: 3,
+            fixes_per_s: 12.5,
+        };
+        assert_eq!(
+            m.to_json(),
+            r#"{"type":"tracking","state":"gyro_only","pointer":{"x":0.5,"y":0.25},"tags":3,"fixes_per_s":12.5}"#
+        );
     }
 
     #[test]

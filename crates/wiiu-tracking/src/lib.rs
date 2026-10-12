@@ -4,10 +4,13 @@
 //! Detection itself (finding AprilTags in camera frames) happens on the phone; see `docs/tracking.md`.
 
 pub mod aim;
+#[cfg(feature = "detector")]
+pub mod detect;
 pub mod fusion;
 pub mod homography;
 pub mod linalg;
 pub mod markers;
+pub mod pipeline;
 pub mod tag36h11;
 pub mod tags;
 

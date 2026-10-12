@@ -120,6 +120,10 @@ impl PointerFusion {
         }
     }
 
+    pub fn config(&self) -> &FusionConfig {
+        &self.cfg
+    }
+
     /// Integrates a gyro sample (camera frame, rad/s) over `dt` seconds.
     pub fn gyro(&mut self, omega: [f64; 3], dt: f64) {
         if !(dt.is_finite() && dt > 0.0 && dt < 0.5) || omega.iter().any(|w| !w.is_finite()) {
