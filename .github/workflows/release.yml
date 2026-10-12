@@ -1,0 +1,118 @@
+name: Release
+
+# Builds downloadable packages for Windows and macOS.
+# - Manual run (Actions → Release → Run workflow): builds packages as workflow artifacts only.
+# - Pushing a tag like v0.1.0: also creates a *draft* GitHub release with the packages attached,
+#   which the repository owner reviews and publishes.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  phone-app:
+    name: Build phone app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        if: ${{ hashFiles('apps/phone/package-lock.json') != '' }}
+        working-directory: apps/phone
+        run: npm ci && npm run build
+      - name: Collect
+        run: |
+          mkdir -p web
+          if [ -d apps/phone/dist ]; then cp -R apps/phone/dist/. web/; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phone-web
+          path: web
+          if-no-files-found: ignore
+          retention-days: 7
+
+  windows:
+    name: Windows (x64)
+    needs: phone-app
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p wiiu-connect
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: phone-web
+          path: package/web
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package | Out-Null
+          Copy-Item target/release/wiiu-connect.exe package/
+          Copy-Item README.md, THIRD_PARTY_NOTICES.md package/ -ErrorAction SilentlyContinue
+          Compress-Archive -Path package/* -DestinationPath wiiu-connect-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wiiu-connect-windows-x64
+          path: wiiu-connect-windows-x64.zip
+
+  macos:
+    name: macOS (universal)
+    needs: phone-app
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p wiiu-connect --target aarch64-apple-darwin
+      - run: cargo build --release --locked -p wiiu-connect --target x86_64-apple-darwin
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: phone-web
+          path: package/web
+      - name: Universal binary + package
+        run: |
+          mkdir -p package
+          lipo -create -output package/wiiu-connect \
+            target/aarch64-apple-darwin/release/wiiu-connect \
+            target/x86_64-apple-darwin/release/wiiu-connect
+          # Ad-hoc signature: required for arm64 executables; not a Developer ID (Gatekeeper still warns).
+          codesign --force --sign - package/wiiu-connect
+          lipo -info package/wiiu-connect
+          cp README.md package/
+          cp THIRD_PARTY_NOTICES.md package/ 2>/dev/null || true
+          ditto -c -k --sequesterRsrc package wiiu-connect-macos-universal.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wiiu-connect-macos-universal
+          path: wiiu-connect-macos-universal.zip
+
+  release:
+    name: Draft GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wiiu-connect-*
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            wiiu-connect-windows-x64.zip
+            wiiu-connect-macos-universal.zip

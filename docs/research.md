@@ -70,6 +70,18 @@ Cemu sources: `cemu-project/Cemu` at commit `aa20e2f86e93` (2026-10-10).
 - Named profiles live in `controllerProfiles/<name>.xml`. The active per-player config is `controllerN.xml`, and
   `wiiu-connect cemu-profile` never overwrites it.
 
+## 5b. Cemu config folders per platform (source-verified)
+
+`CemuApp::DeterminePaths` (`src/gui/wxgui/CemuApp.cpp`):
+
+- **Windows:** `portable/` next to `Cemu.exe`, else `%APPDATA%\Cemu`. Before 2.0-89, Cemu used the exe folder
+  itself.
+- **macOS:** `portable/` next to `Cemu.app` (only if built with `CEMU_ALLOW_PORTABLE`), else
+  `wxStandardPaths::GetUserDataDir()`, which is `~/Library/Application Support/Cemu`.
+- **Linux:** `portable/` next to the executable, else `$XDG_CONFIG_HOME/Cemu` (default `~/.config/Cemu`).
+
+`wiiu_cemu::profile_dir_candidates_for` mirrors this.
+
 ## 6. GamePad touchscreen via DSU (source-verified, groundwork for Milestone 5)
 
 - `VPADController` (`src/input/emulated/VPADController.cpp`): when the bound controller has a position, it sets

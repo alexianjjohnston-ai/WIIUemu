@@ -17,6 +17,8 @@ All notable changes to this project are documented here. The format follows
 - `wiiu-cemu`: Cemu controller profile generation for DSU-bound Wii Remotes.
 - `wiiu-connect`: session server with token pairing, QR pairing page, slot assignment, reconnect, staleness
   watchdog, mouse pointer test page, and `cemu-profile` / `probe` commands.
+- macOS support: Cemu profile folder detection, macOS CI job, universal (arm64 + x86_64) release package.
+- Release workflow producing Windows and macOS zips; `v*` tags create a draft GitHub release.
 - `apps/phone`: Wii Remote PWA (React + TypeScript). Authentic and comfort layouts, left-handed mode, button
   size, multi-touch, haptics where supported, reconnect with backoff, release on hide/blur/disconnect, and
   Playwright e2e tests against a mocked server.
