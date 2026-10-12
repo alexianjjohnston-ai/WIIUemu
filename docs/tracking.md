@@ -1,7 +1,8 @@
 # Camera tracking and calibration
 
-> **Status (2026-10-12):** the pointing math is implemented and tested with synthetic cameras
-> (`crates/wiiu-tracking`). Not built yet: marker rendering, on-phone detection, gyro fusion, calibration UI.
+> **Status (2026-10-12):** pointing math, gyro fusion, tag rendering, the TV border page (`/tracking`) and HTTPS
+> for phones are implemented and tested synthetically. Not built yet: on-phone detection (camera + AprilTag
+> WASM), the calibration UI, and physical measurements.
 
 ## Important ergonomic constraint: camera orientation
 
@@ -26,6 +27,9 @@ This must be validated physically with real phones before the controller UI is f
 | `homography` | Normalised DLT (Hartley-Zisserman 4.2) with a Jacobi eigen-solver; rejects degenerate input. | exact recovery, degeneracy rejection |
 | `aim` | `estimate_aim`: image → game homography from all visible tag corners, aim = H(aim image point); rejects < 2 tags or reprojection RMS > 3 px. `calibrate_aim_point`: per-device pointing-axis calibration. | synthetic camera (below) |
 
+| `fusion` | `PointerFusion`: between camera fixes, rotates the pointing ray by the gyro-integrated rotation and maps it through the last homography; a fix resets the drift. Tracking → GyroOnly after 0.3 s without fix → Lost after 2 s. | pure-rotation exactness, focal-length error, gyro bias with 30 fps fixes, state transitions |
+| `tags` / `tag36h11` | Official tag36h11 code table and renderer (10×10 cells incl. quiet zone). | table integrity, Hamming distance ≥ 11 under rotation |
+
 Synthetic results (`tests/synthetic.rs`, 1280×720 camera, f = 1000 px, 2–4 screen heights away, random
 yaw/pitch/roll/offset):
 
@@ -34,6 +38,10 @@ yaw/pitch/roll/offset):
   (300 poses). On a 1920 px wide TV, that is about 0.4 px median and 1.1 px p95.
 - Rolling the phone around its pointing axis does not move the aim point, as on a real Wii Remote.
 - Calibration of an offset pointing axis (8° / 5°) brings errors within 1 % of the screen.
+
+- Gyro fusion: pure rotation for 0.25 s matches truth to < 1e-6. A 10 % focal-length error stays within 2 %
+  after a 5° turn. A gyro bias of 0.02–0.03 rad/s with 30 fps camera fixes keeps the error below 0.5 % of the
+  screen.
 
 These are idealised numbers. Real detection adds corner bias, blur and rolling-shutter effects, so physical
 measurements are still required.

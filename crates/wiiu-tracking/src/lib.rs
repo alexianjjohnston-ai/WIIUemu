@@ -4,6 +4,7 @@
 //! Detection itself (finding AprilTags in camera frames) happens on the phone; see `docs/tracking.md`.
 
 pub mod aim;
+pub mod fusion;
 pub mod homography;
 pub mod linalg;
 pub mod markers;
@@ -11,4 +12,5 @@ pub mod tag36h11;
 pub mod tags;
 
 pub use aim::{calibrate_aim_point, estimate_aim, AimConfig, AimError, AimEstimate, TagObservation};
+pub use fusion::{FusionConfig, PointerFusion, PointerState};
 pub use markers::{BorderConfig, Marker, MarkerLayout};

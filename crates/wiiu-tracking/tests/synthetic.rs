@@ -292,3 +292,110 @@ fn aiming_beside_the_screen_gives_no_pointer() {
     assert!(est.x > 1.0, "{est:?}");
     assert_eq!(est.pointer(), None);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Gyro fusion
+
+fn fusion_cfg(focal: f64) -> FusionConfig {
+    FusionConfig {
+        focal_px: focal,
+        principal: [W / 2.0, H / 2.0],
+        aim_image_point: [W / 2.0, H / 2.0],
+        max_gyro_only_s: 2.0,
+    }
+}
+
+/// Rotates the synthetic camera by body-frame angular velocity `w` for `dt` (same convention as the fusion).
+fn spin(cam: &mut Camera, w: [f64; 3], dt: f64) {
+    cam.r = mul(
+        &cam.r,
+        &wiiu_tracking::fusion::exp_so3([w[0] * dt, w[1] * dt, w[2] * dt]),
+    );
+}
+
+fn start_cam() -> Camera {
+    Camera {
+        pos: [ASPECT / 2.0 + 0.2, 0.45, -2.8],
+        r: rot(-0.05, 0.03, 0.1),
+    }
+}
+
+#[test]
+fn gyro_propagation_is_exact_for_pure_rotation() {
+    let mut cam = start_cam();
+    let mut fusion = PointerFusion::new(fusion_cfg(F));
+    let est = estimate_aim(&cam.observe(&layout(), &mut || 0.0), &layout(), &cfg()).unwrap();
+    fusion.camera_fix(&est);
+    let w = [0.3, -0.4, 0.8]; // rad/s: pitch, yaw, roll
+    for _ in 0..50 {
+        spin(&mut cam, w, 0.005);
+        fusion.gyro(w, 0.005);
+    }
+    let truth = cam.hit([W / 2.0, H / 2.0]).unwrap();
+    let PointerState::Tracking { x, y } = fusion.state() else {
+        panic!("{:?}", fusion.state())
+    };
+    assert!(
+        (x - truth[0]).abs() < 1e-6 && (y - truth[1]).abs() < 1e-6,
+        "({x}, {y}) vs {truth:?}"
+    );
+}
+
+#[test]
+fn focal_length_error_only_scales_gyro_motion() {
+    let mut cam = start_cam();
+    let mut fusion = PointerFusion::new(fusion_cfg(F * 1.1)); // 10 % wrong FOV guess
+    let est = estimate_aim(&cam.observe(&layout(), &mut || 0.0), &layout(), &cfg()).unwrap();
+    fusion.camera_fix(&est);
+    let w = [0.0, 0.35, 0.0]; // ~5° yaw over 0.25 s
+    for _ in 0..50 {
+        spin(&mut cam, w, 0.005);
+        fusion.gyro(w, 0.005);
+    }
+    let truth = cam.hit([W / 2.0, H / 2.0]).unwrap();
+    let PointerState::Tracking { x, y } = fusion.state() else {
+        panic!()
+    };
+    assert!(
+        (x - truth[0]).abs() < 0.02 && (y - truth[1]).abs() < 0.02,
+        "({x}, {y}) vs {truth:?}"
+    );
+}
+
+#[test]
+fn camera_fixes_bound_gyro_bias_drift() {
+    let mut cam = start_cam();
+    let mut fusion = PointerFusion::new(fusion_cfg(F));
+    let bias = [0.02, -0.03, 0.01]; // rad/s, typical uncalibrated phone gyro bias
+    let mut max_err: f64 = 0.0;
+    for step in 0..400 {
+        // 2 s of slow sweeping at 200 Hz, camera fix every 33 ms (≈30 fps).
+        let w = [0.2 * (step as f64 * 0.02).sin(), 0.3 * (step as f64 * 0.015).cos(), 0.0];
+        spin(&mut cam, w, 0.005);
+        fusion.gyro([w[0] + bias[0], w[1] + bias[1], w[2] + bias[2]], 0.005);
+        if step % 7 == 0 {
+            if let Ok(est) = estimate_aim(&cam.observe(&layout(), &mut || 0.0), &layout(), &cfg()) {
+                fusion.camera_fix(&est);
+            }
+        }
+        if let (Some(truth), PointerState::Tracking { x, y }) = (cam.hit([W / 2.0, H / 2.0]), fusion.state()) {
+            max_err = max_err.max((x - truth[0]).abs().max((y - truth[1]).abs()));
+        }
+    }
+    assert!(max_err < 0.005, "max error {max_err}");
+}
+
+#[test]
+fn markers_lost_switches_to_gyro_only_then_lost() {
+    let cam = start_cam();
+    let mut fusion = PointerFusion::new(fusion_cfg(F));
+    let est = estimate_aim(&cam.observe(&layout(), &mut || 0.0), &layout(), &cfg()).unwrap();
+    fusion.camera_fix(&est);
+    assert!(matches!(fusion.state(), PointerState::Tracking { .. }));
+    fusion.advance(0.5);
+    assert!(matches!(fusion.state(), PointerState::GyroOnly { .. }));
+    assert!(fusion.state().pointer().is_some());
+    fusion.advance(1.6);
+    assert_eq!(fusion.state(), PointerState::Lost);
+    assert_eq!(fusion.state().pointer(), None);
+}
