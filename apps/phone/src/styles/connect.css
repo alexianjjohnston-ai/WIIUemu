@@ -1,0 +1,132 @@
+.page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+}
+
+.card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--card);
+  border-radius: 24px;
+  padding: 1.5rem 1.25rem;
+  box-shadow: 0 12px 40px rgb(20 40 60 / 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.card h1 {
+  font-size: 1.4rem;
+}
+
+.card p {
+  line-height: 1.45;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.brand-mark {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  filter: drop-shadow(0 3px 6px rgb(0 0 0 / 0.15));
+}
+
+.brand-mark rect {
+  fill: #fff;
+  stroke: var(--line);
+  stroke-width: 1.5;
+}
+
+.brand-a {
+  fill: #e6eaee;
+  stroke: #b9c2ca;
+}
+
+.brand-dpad {
+  stroke: #8d98a2;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.token-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.9rem;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: #0f6a96;
+  font-weight: 600;
+}
+
+.roles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.role,
+.segment {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 14px;
+  border: 2px solid var(--line);
+  cursor: pointer;
+  background: #fff;
+}
+
+.role[data-checked='true'],
+.segment[data-checked='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.role input,
+.segment input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.role:has(input:focus-visible),
+.segment:has(input:focus-visible) {
+  outline: 3px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  outline-offset: 2px;
+}
+
+.role-title,
+.segment-label {
+  font-weight: 700;
+}
+
+.role-detail,
+.segment-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.placeholder-art {
+  width: 140px;
+  align-self: center;
+}
+
+.placeholder-art rect,
+.placeholder-art circle {
+  fill: #fff;
+  stroke: #b9c2ca;
+  stroke-width: 2;
+}
+
+.placeholder-art .screen {
+  fill: #2c3a46;
+}

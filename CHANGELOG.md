@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+- Phone app: production builds ignore the `?server=` URL override, so a crafted link can't send the pairing
+  token to another host.
+
 ### Added
 - `wiiu-dsu`: Cemuhook DSU protocol v1001 server, byte-compatible with Cemu's DSU client. Includes a Cemu-like
   probe client.
@@ -15,5 +19,8 @@ All notable changes to this project are documented here. The format follows
   watchdog, mouse pointer test page, and `cemu-profile` / `probe` commands.
 - macOS support: Cemu profile folder detection, macOS CI job, universal (arm64 + x86_64) release package.
 - Release workflow producing Windows and macOS zips; `v*` tags create a draft GitHub release.
+- `apps/phone`: Wii Remote PWA (React + TypeScript). Authentic and comfort layouts, left-handed mode, button
+  size, multi-touch, haptics where supported, reconnect with backoff, release on hide/blur/disconnect, and
+  Playwright e2e tests against a mocked server.
 - CI for Rust (Linux and Windows), the phone app, and security scanning.
 - Documentation: architecture, protocol, research, tracking design, tools, compatibility, progress.
