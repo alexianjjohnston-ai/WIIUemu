@@ -135,12 +135,16 @@ describe('Connection', () => {
     (code) => {
       const { conn, sockets, last } = setup();
       conn.start();
-      last().serverOpen();
-      last().serverSend({ type: 'error', code, message: 'nope' });
-      last().serverClose();
+      // unsupported_protocol first retries once with protocol 1 (see below); a second rejection is final.
+      const attempts = code === 'unsupported_protocol' ? 2 : 1;
+      for (let i = 0; i < attempts; i++) {
+        last().serverOpen();
+        last().serverSend({ type: 'error', code, message: 'nope' });
+        last().serverClose();
+      }
       expect(conn.getState()).toEqual({ status: 'failed', reason: { code, detail: 'nope' } });
       vi.advanceTimersByTime(60_000);
-      expect(sockets).toHaveLength(1);
+      expect(sockets).toHaveLength(attempts);
     },
   );
 
@@ -234,6 +238,23 @@ describe('Connection', () => {
     expect(conn.send({ type: 'gyro', samples: [[1, 0, 0, 0]] })).toBe(true);
     last().serverSend(tracking);
     expect(events.onTracking).toHaveBeenCalledWith(tracking);
+  });
+
+  it('retries with protocol 1 when an older PC rejects the protocol 2 hello', () => {
+    const { conn, sockets, last } = setup();
+    conn.start();
+    last().serverOpen();
+    expect(last().messages()[0]).toMatchObject({ type: 'hello', protocol: 2 });
+    last().serverSend({ type: 'error', code: 'unsupported_protocol', message: 'protocol must be 1' });
+    last().serverClose();
+    expect(sockets).toHaveLength(2); // immediately, no backoff
+    last().serverOpen();
+    const hello = last().messages()[0];
+    expect(hello).toMatchObject({ type: 'hello', protocol: 1 });
+    expect(validateClientFrame(JSON.stringify(hello), 'wiimote')).toEqual([]);
+    last().serverSend({ ...WELCOME, protocol: 1 });
+    expect(conn.getState()).toMatchObject({ status: 'connected' });
+    expect(conn.supportsTracking).toBe(false);
   });
 
   it('accepts a protocol 1 server but keeps camera tracking off', () => {

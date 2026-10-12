@@ -34,6 +34,12 @@ export function WiimoteScreen({ config, onLeave }: Props) {
 
   useWakeLock(true);
 
+  // A protocol 1 PC can't take camera frames: if the camera was switched on while connecting, turn it off
+  // (its toggle is hidden for such PCs).
+  useEffect(() => {
+    if (state.status === 'connected' && state.welcome.protocol < 2) session.camera.disable();
+  }, [state, session]);
+
   const link: LinkStatus =
     state.status === 'connected' ? 'connected' : state.status === 'connecting' ? 'connecting' : 'down';
   const player = state.status === 'connected' ? state.welcome.player : null;
