@@ -37,6 +37,13 @@ pub enum ClientMessage {
     Gyro {
         samples: Vec<[f64; 4]>,
     },
+    /// Protocol ≥ 2: the player is aiming at the centre of the TV image now; measure the aim point.
+    Calibrate,
+    /// Protocol ≥ 2: apply a stored aim point (fraction of the camera image), or the image centre for `null`.
+    /// Check it with [`validate_aim_point`].
+    Aim {
+        point: Option<Xy>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -97,10 +104,27 @@ pub enum ServerMessage {
         tags: u32,
         fixes_per_s: f32,
     },
+    /// Protocol ≥ 2: result of a `calibrate` request.
+    Calibration {
+        ok: bool,
+        /// The new aim point (fraction of the camera image) on success.
+        point: Option<PointerXy>,
+        reason: Option<CalibrationFailure>,
+    },
     Error {
         code: ErrorCode,
         message: String,
     },
+}
+
+/// Why a calibration failed (the previous aim point stays in place).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CalibrationFailure {
+    /// No camera fix within the time limit: the TV border was not in view.
+    NoMarkers,
+    /// The computed aim point lies outside the camera image: the player was not aiming at the centre.
+    OffImage,
 }
 
 impl ServerMessage {
@@ -300,6 +324,15 @@ pub struct GyroSample {
 }
 
 /// Validates a `gyro` message's samples (finite, bounded, strictly increasing timestamps).
+/// Checks an `aim` point: `null`, or `x` and `y` finite and within [0,1] (reject, don't clamp).
+pub fn validate_aim_point(point: Option<Xy>) -> Result<Option<[f64; 2]>, ProtocolError> {
+    match point {
+        None => Ok(None),
+        Some(Xy { x, y }) if (0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y) => Ok(Some([x, y])),
+        Some(_) => Err(invalid("point", "x and y must be within [0,1]")),
+    }
+}
+
 pub fn validate_gyro(samples: &[[f64; 4]], last_t_us: Option<u64>) -> Result<Vec<GyroSample>, ProtocolError> {
     if samples.is_empty() || samples.len() > MAX_GYRO_SAMPLES {
         return Err(invalid("samples", format!("1-{MAX_GYRO_SAMPLES} samples required")));
@@ -396,6 +429,61 @@ pub fn encode_camera_frame(width: u16, height: u16, seq: u32, capture_us: u64, j
     out.extend_from_slice(&capture_us.to_le_bytes());
     out.extend_from_slice(jpeg);
     out
+}
+
+#[cfg(test)]
+mod calibration_tests {
+    use super::*;
+
+    #[test]
+    fn parses_calibrate_and_aim() {
+        assert_eq!(
+            parse_client_message(r#"{"type":"calibrate"}"#),
+            Ok(ClientMessage::Calibrate)
+        );
+        assert_eq!(
+            parse_client_message(r#"{"type":"aim","point":{"x":0.52,"y":0.44}}"#),
+            Ok(ClientMessage::Aim {
+                point: Some(Xy { x: 0.52, y: 0.44 })
+            })
+        );
+        assert_eq!(
+            parse_client_message(r#"{"type":"aim","point":null}"#),
+            Ok(ClientMessage::Aim { point: None })
+        );
+        assert!(parse_client_message(r#"{"type":"aim","point":{"x":"0.5","y":0.5}}"#).is_err());
+    }
+
+    #[test]
+    fn aim_point_is_rejected_outside_the_image() {
+        assert_eq!(validate_aim_point(None), Ok(None));
+        assert_eq!(validate_aim_point(Some(Xy { x: 0.0, y: 1.0 })), Ok(Some([0.0, 1.0])));
+        for (x, y) in [(-0.01, 0.5), (0.5, 1.01), (f64::NAN, 0.5), (0.5, f64::INFINITY)] {
+            assert!(validate_aim_point(Some(Xy { x, y })).is_err(), "({x}, {y})");
+        }
+    }
+
+    #[test]
+    fn calibration_result_json() {
+        let ok = ServerMessage::Calibration {
+            ok: true,
+            point: Some(PointerXy { x: 0.5, y: 0.25 }),
+            reason: None,
+        };
+        assert_eq!(
+            ok.to_json(),
+            r#"{"type":"calibration","ok":true,"point":{"x":0.5,"y":0.25},"reason":null}"#
+        );
+        let failed = ServerMessage::Calibration {
+            ok: false,
+            point: None,
+            reason: Some(CalibrationFailure::NoMarkers),
+        };
+        assert_eq!(
+            failed.to_json(),
+            r#"{"type":"calibration","ok":false,"point":null,"reason":"no_markers"}"#
+        );
+    }
 }
 
 #[cfg(test)]
