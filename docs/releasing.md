@@ -37,6 +37,13 @@ fails if:
 
 For a release candidate, use a version like `1.0.0-rc.1`. The release is then marked as a pre-release.
 
+**Without pushing a tag** (e.g. from a phone, or where tag pushes are blocked): instead of step 3, open Actions →
+Release → Run workflow on `main`, tick **Make the release** and run it. It checks that the tag doesn't exist yet,
+runs the same builds and checks, and creates the release with the tag `v<version>` on the commit it built. A
+pre-release version (one with a `-`, such as `0.9.0-beta.1`) is published at once, because it is meant for testing.
+A full version stays a draft for step 4; publishing it creates the tag, which runs the workflow once more and
+refreshes the files.
+
 To test the downloads without releasing, push any branch named `test/<something>`, or run the workflow by hand
 (Actions → Release → Run workflow). The files are attached to the workflow run.
 
