@@ -54,13 +54,16 @@ interface StatusProps {
   onResetCalibration: () => void;
 }
 
-/** Short enough for one line beside its buttons, so the row never covers the remote's controls. */
-function calibrationText(c: CalibrationStatus): string | null {
+/**
+ * Short enough for one line beside its buttons, so the row never covers the remote's controls. `onGame`: the tags
+ * are around Cemu's game (no cross on the TV), not on the /tracking page.
+ */
+function calibrationText(c: CalibrationStatus, onGame: boolean): string | null {
   switch (c.status) {
     case 'none':
       return null;
     case 'countdown':
-      return `Aim at the centre cross · ${c.seconds}`;
+      return onGame ? `Aim at the middle of the game · ${c.seconds}` : `Aim at the centre cross · ${c.seconds}`;
     case 'measuring':
       return 'Hold still…';
     case 'saved':
@@ -70,7 +73,7 @@ function calibrationText(c: CalibrationStatus): string | null {
         case 'no_markers':
           return 'TV border not seen';
         case 'off_image':
-          return 'Aim at the cross';
+          return onGame ? 'Aim at the game' : 'Aim at the cross';
         case 'not_connected':
           return 'Not connected';
         default:
@@ -86,18 +89,20 @@ function calibrationText(c: CalibrationStatus): string | null {
 function CalibrationRow({
   calibration: c,
   canMeasure,
+  onGame,
   onCalibrate,
   onReset,
 }: {
   calibration: CalibrationStatus;
   canMeasure: boolean;
+  onGame: boolean;
   onCalibrate: () => void;
   onReset: () => void;
 }) {
   const busy = c.status === 'countdown' || c.status === 'measuring';
   const reporting = c.status === 'failed' || (c.status === 'saved' && c.justNow);
   if (!canMeasure && !busy && !reporting) return null;
-  const text = calibrationText(c);
+  const text = calibrationText(c, onGame);
   const label = c.status === 'failed' ? 'Try again' : c.status === 'saved' ? 'Recalibrate' : 'Calibrate pointer';
   return (
     <div className="calibration-line" data-testid="calibration" data-status={c.status} role="status">
@@ -166,6 +171,7 @@ export function CameraPointerStatus({
           <CalibrationRow
             calibration={state.calibration}
             canMeasure={state.feedback?.state === 'tracking'}
+            onGame={state.feedback?.border === 'game'}
             onCalibrate={onCalibrate}
             onReset={onResetCalibration}
           />

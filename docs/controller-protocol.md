@@ -199,10 +199,14 @@ manual or touch fallback).
 ### `tracking` (text, server → client, about 10 Hz while frames arrive)
 
 ```json
-{ "type": "tracking", "state": "tracking", "pointer": { "x": 0.41, "y": 0.62 }, "tags": 7, "fixes_per_s": 28.5 }
+{ "type": "tracking", "state": "tracking", "pointer": { "x": 0.41, "y": 0.62 }, "tags": 7, "fixes_per_s": 28.5, "border": "game" }
 ```
 
 `state` is `tracking`, `gyro_only` or `lost`. Phones use it for on-screen feedback ("point at the TV").
+
+Optional `border` (added with the TV border, ADR-0004; older PCs omit it): `"game"` while the tags surround Cemu's
+game picture, so "the centre" for calibration is the middle of the game; `"page"` while the player uses the
+`/tracking` page, whose centre cross marks it. Phones treat a missing or unknown value as `"page"`.
 
 ### Pointer calibration
 

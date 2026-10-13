@@ -158,6 +158,8 @@ export interface TrackingMessage {
   pointer: Vec2 | null;
   tags: number;
   fixes_per_s: number;
+  /** Where the tags are: around Cemu's game (`game`) or on the PC's /tracking page. Missing means `page`. */
+  border?: 'game' | 'page';
 }
 
 /** Why a calibration failed; kept as string so newer servers do not break older phones. */

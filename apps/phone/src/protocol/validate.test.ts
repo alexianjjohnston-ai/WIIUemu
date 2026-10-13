@@ -128,4 +128,14 @@ describe('parseServerMessage', () => {
     expect(parseServerMessage('{"type":"welcome","slot":"1"}')).toBeNull();
     expect(parseServerMessage('{"type":"surprise"}')).toBeNull();
   });
+
+  it('reads where the tags are from tracking messages, and ignores values it does not know', () => {
+    const base = '"type":"tracking","state":"tracking","pointer":null,"tags":9,"fixes_per_s":29';
+    expect(parseServerMessage(`{${base},"border":"game"}`)).toMatchObject({ border: 'game' });
+    expect(parseServerMessage(`{${base},"border":"page"}`)).toMatchObject({ border: 'page' });
+    // Older servers leave it out; newer ones may add places this phone doesn't know. Both mean "page".
+    expect(parseServerMessage(`{${base}}`)).not.toHaveProperty('border');
+    expect(parseServerMessage(`{${base},"border":"window"}`)).not.toHaveProperty('border');
+    expect(parseServerMessage(`{${base},"border":7}`)).not.toHaveProperty('border');
+  });
 });

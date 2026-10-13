@@ -419,6 +419,8 @@ async fn camera_frames_drive_the_wiimote_pointer_over_protocol_v2() {
     }
     let m = got.expect("tracking feedback");
     assert_eq!(m["tags"], 10);
+    // No TV border in this test: the tags come from the /tracking page.
+    assert_eq!(m["border"], "page");
 }
 
 #[tokio::test]

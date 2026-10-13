@@ -107,7 +107,7 @@ async fn ws_upgrade(
     // MAX_FRAME_BYTES by `ws::next_message`.
     ws.max_message_size(MAX_CAMERA_FRAME_BYTES)
         .max_frame_size(MAX_CAMERA_FRAME_BYTES)
-        .on_upgrade(move |socket| crate::ws::handle(socket, state.sessions, peer))
+        .on_upgrade(move |socket| crate::ws::handle(socket, state.sessions, state.tv_border, peer))
 }
 
 /// `Some(403 response)` unless the request is local (see [`is_local_request`]).
