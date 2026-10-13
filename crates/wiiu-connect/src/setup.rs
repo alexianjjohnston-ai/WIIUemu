@@ -186,7 +186,7 @@ impl Setup {
             releases_page: RELEASES_PAGE,
             controllers_assigned: install
                 .as_ref()
-                .is_some_and(|i| install::wiimotes_assigned(i, self.dsu)),
+                .is_some_and(|i| install::controllers_assigned(i, self.dsu)),
             cemu: install.map(|i| CemuStatus {
                 managed: i.dir == managed_dir,
                 version: std::fs::read_to_string(i.dir.join(".wiiu-connect-version")).ok(),
@@ -247,7 +247,7 @@ impl Setup {
 
     pub fn assign_controllers(&self) -> Result<install::AssignReport, SetupError> {
         let install = self.install().ok_or(SetupError::NoCemu)?;
-        Ok(install::assign_wiimotes(&install, self.dsu)?)
+        Ok(install::assign_controllers(&install, self.dsu)?)
     }
 
     pub fn add_game_folder(&self, dir: &Path) -> Result<usize, SetupError> {
@@ -401,9 +401,9 @@ impl Setup {
             saved.cemu_dir = Some(target.clone());
         }
         self.save()?;
-        // A fresh managed install has no controller setup yet: point Controllers 2–4 at the phones.
+        // A fresh managed install has no controller setup yet: point Controllers 1–4 at the phones.
         let install = CemuInstall::find(&target, self.platform, &Self::env).ok_or(SetupError::NotCemu(target))?;
-        install::assign_wiimotes(&install, self.dsu)?;
+        install::assign_controllers(&install, self.dsu)?;
         Ok(asset.tag)
     }
 

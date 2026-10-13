@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react';
 import { ConnectScreen } from './components/ConnectScreen';
-import { GamepadPlaceholder } from './components/GamepadPlaceholder';
+import { GamepadScreen } from './components/gamepad/GamepadScreen';
 import { WiimoteScreen } from './components/wiimote/WiimoteScreen';
 import { getDeviceId } from './lib/deviceId';
 import { guessDeviceName, readLaunchParams, resolveWsUrl } from './lib/params';
 import { loadLastToken, saveLastToken } from './lib/tokenStore';
 import type { SessionConfig } from './session/ControllerSession';
 
-type Screen = { name: 'connect' } | { name: 'wiimote'; config: SessionConfig; key: number } | { name: 'gamepad' };
+type Screen =
+  | { name: 'connect' }
+  | { name: 'wiimote'; config: SessionConfig; key: number }
+  | { name: 'gamepad'; config: SessionConfig; key: number };
 
 export function App() {
   const launch = useMemo(() => {
@@ -31,7 +34,7 @@ export function App() {
     case 'wiimote':
       return <WiimoteScreen key={screen.key} config={screen.config} onLeave={back} />;
     case 'gamepad':
-      return <GamepadPlaceholder onBack={back} />;
+      return <GamepadScreen key={screen.key} config={screen.config} onLeave={back} />;
     case 'connect':
       return (
         <ConnectScreen
@@ -42,16 +45,18 @@ export function App() {
           onConnect={(nextToken, role) => {
             setLastRole(role);
             setToken(nextToken);
-            if (role === 'gamepad') {
-              setScreen({ name: 'gamepad' });
-              return;
-            }
             saveLastToken(nextToken);
-            setScreen({
-              name: 'wiimote',
-              key: Date.now(),
-              config: { url: launch.url, token: nextToken, deviceId: getDeviceId(), name: guessDeviceName(navigator.userAgent) },
-            });
+            const config = {
+              url: launch.url,
+              token: nextToken,
+              deviceId: getDeviceId(),
+              name: guessDeviceName(navigator.userAgent),
+            };
+            setScreen(
+              role === 'gamepad'
+                ? { name: 'gamepad', key: Date.now(), config }
+                : { name: 'wiimote', key: Date.now(), config },
+            );
           }}
         />
       );

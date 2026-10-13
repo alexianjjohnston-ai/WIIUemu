@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { connectAsWiimote, expect, presetSettings, test } from './fixtures';
+import { connectAsGamepad, connectAsWiimote, expect, presetSettings, test } from './fixtures';
 
 // Reference screenshots committed to apps/phone/screenshots/ (360x740 at 1x DPR to keep them small).
 // Captured on the Pixel 7 project only (see playwright.config.ts).
@@ -34,5 +34,11 @@ test.describe('screenshots', () => {
     await server.close();
     await expect(page.getByTestId('connection-notice')).toHaveAttribute('data-kind', 'reconnecting');
     await page.screenshot({ path: `${DIR}/reconnecting.png`, animations: 'disabled' });
+  });
+
+  test('GamePad (landscape)', async ({ page }) => {
+    await connectAsGamepad(page);
+    await expect(page.getByTestId('status')).toContainText('GamePad · Connected');
+    await page.screenshot({ path: `${DIR}/gamepad.png`, animations: 'disabled' });
   });
 });

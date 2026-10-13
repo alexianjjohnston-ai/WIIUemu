@@ -2,7 +2,7 @@
 
 import { test as base, expect, type CDPSession, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
 import { validateCameraFrame, validateClientFrame, validateGyro } from '../src/protocol/validate';
-import type { GyroMessage, HelloMessage, InputMessage, TrackingMessage } from '../src/protocol/types';
+import type { GyroMessage, HelloMessage, InputMessage, Role, TrackingMessage } from '../src/protocol/types';
 
 export interface WelcomeOptions {
   slot: number;
@@ -42,6 +42,7 @@ export class MockServer {
       this.current = ws;
       let lastSeq: number | null = null;
       let lastGyroT: number | null = null;
+      let role: Role = 'wiimote';
       ws.onMessage((frame) => {
         if (typeof frame !== 'string') {
           const bytes = new Uint8Array(frame);
@@ -60,13 +61,16 @@ export class MockServer {
           return;
         }
         const text = frame;
-        for (const e of validateClientFrame(text, 'wiimote')) this.violations.push(`${e} in ${text}`);
-        const msg = JSON.parse(text) as { type: string; id?: number };
+        const msg = JSON.parse(text) as { type: string; id?: number; role?: unknown };
+        if (msg.type === 'hello' && (msg.role === 'wiimote' || msg.role === 'gamepad')) role = msg.role;
+        for (const e of validateClientFrame(text, role)) this.violations.push(`${e} in ${text}`);
         const meta = { conn, at: Date.now() };
         switch (msg.type) {
           case 'hello':
             this.hellos.push({ ...(msg as HelloMessage), ...meta });
-            if (this.autoWelcome) this.welcome(this.autoWelcome, ws);
+            if (this.autoWelcome) {
+              this.welcome(role === 'gamepad' ? { slot: 0, player: 0 } : this.autoWelcome, ws, role);
+            }
             break;
           case 'input':
             this.inputs.push({ ...(msg as InputMessage), ...meta });
@@ -87,8 +91,8 @@ export class MockServer {
     });
   }
 
-  welcome(opts: WelcomeOptions, ws: WebSocketRoute | null = this.current): void {
-    ws?.send(JSON.stringify({ type: 'welcome', protocol: this.protocol, role: 'wiimote', ...opts }));
+  welcome(opts: WelcomeOptions, ws: WebSocketRoute | null = this.current, role: Role = 'wiimote'): void {
+    ws?.send(JSON.stringify({ type: 'welcome', protocol: this.protocol, role, ...opts }));
   }
 
   sendTracking(msg: Omit<TrackingMessage, 'type'>): void {
@@ -190,6 +194,16 @@ export async function connectAsWiimote(page: Page, token = 'e2e-token-123'): Pro
   await page.goto(`/?token=${encodeURIComponent(token)}`);
   await page.getByRole('button', { name: 'Connect' }).click();
   await expect(page.getByTestId('wiimote-screen')).toBeVisible();
+}
+
+/** Open the app in landscape with a token and connect as the GamePad. */
+export async function connectAsGamepad(page: Page, token = 'e2e-token-123'): Promise<void> {
+  const size = page.viewportSize();
+  if (size && size.height > size.width) await page.setViewportSize({ width: size.height, height: size.width });
+  await page.goto(`/?token=${encodeURIComponent(token)}`);
+  await page.getByText('GamePad', { exact: true }).click();
+  await page.getByRole('button', { name: 'Connect' }).click();
+  await expect(page.getByTestId('gamepad-screen')).toBeVisible();
 }
 
 /** Preload layout settings before the app reads them. */

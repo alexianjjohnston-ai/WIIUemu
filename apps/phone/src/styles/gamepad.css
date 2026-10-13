@@ -1,0 +1,279 @@
+/* Wii U GamePad controller screen (landscape).
+ * Three columns: left grip (ZL L, left stick, D-pad), the touchscreen, right grip (R ZR, right stick, ABXY).
+ * Controls are sized from the viewport height (the short side in landscape), capped by the width, so the
+ * layout fits every phone without scrolling. */
+
+.gp-screen {
+  --plastic: #fbfcfd;
+  --cap: #f1f4f6;
+  --cap-edge: #d5dce2;
+  --cap-ink: #8a96a0;
+  --pressed: #c9eefc;
+  --hit-pad: 3px;
+  --grip-w: min(27vw, 62dvh);
+  --stick: min(34dvh, 20vw);
+  --face: min(40dvh, 23vw);
+  --dpad: min(30dvh, 17vw);
+
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: var(--grip-w) minmax(0, 1fr) var(--grip-w);
+  gap: 1.5vw;
+  padding: env(safe-area-inset-top) max(8px, env(safe-area-inset-right)) env(safe-area-inset-bottom)
+    max(8px, env(safe-area-inset-left));
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.gp-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 0;
+  padding: 6px 0 8px;
+}
+
+.gp-centre {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.gp-centre .topbar {
+  height: auto;
+  padding: 4px 0;
+}
+
+/* ---- shoulder buttons ------------------------------------------------------------------------- */
+
+.gp-shoulders {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.gp-side--right .gp-shoulders {
+  justify-content: flex-end;
+}
+
+.gp-shoulder {
+  flex: 1 1 0;
+  max-width: 50%;
+}
+
+.gp-shoulder .wm-cap {
+  width: 100%;
+  height: min(13dvh, 48px);
+  border-radius: 12px;
+  font-size: 0.95rem;
+}
+
+.gp-shoulder--z .wm-cap {
+  background: linear-gradient(180deg, #e9edf1, #d6dde3);
+}
+
+/* ---- sticks ------------------------------------------------------------------------------------ */
+
+.gp-stick {
+  position: relative;
+  flex: none;
+  width: var(--stick);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, #dde4ea 0 58%, #cfd8df 60% 100%);
+  box-shadow: inset 0 2px 6px rgb(0 0 0 / 0.18);
+  display: grid;
+  place-items: center;
+  touch-action: none;
+}
+
+.gp-knob {
+  width: 52%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #4a5560, #2c343b 70%);
+  box-shadow:
+    0 3px 6px rgb(0 0 0 / 0.3),
+    inset 0 1px 0 rgb(255 255 255 / 0.25);
+  pointer-events: none;
+  transition: transform 40ms linear;
+}
+
+.gp-stick[data-held='true'] .gp-knob {
+  transition: none;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--led-on) 55%, transparent),
+    0 3px 6px rgb(0 0 0 / 0.3);
+}
+
+/* ---- D-pad (shares the Wii Remote's cross) ---------------------------------------------------- */
+
+.gp-dpad {
+  --size: var(--dpad);
+}
+
+/* ---- face buttons: X top, Y left, A right, B bottom ------------------------------------------- */
+
+.gp-face {
+  position: relative;
+  flex: none;
+  width: var(--face);
+  aspect-ratio: 1;
+}
+
+.gp-face-btn {
+  position: absolute;
+  width: 33%;
+  height: 33%;
+  padding: 0;
+}
+
+.gp-face-btn .wm-cap {
+  width: 94%;
+  aspect-ratio: 1;
+  font-size: calc(var(--face) * 0.12);
+}
+
+.gp-face-btn--x {
+  top: 0;
+  left: 33.5%;
+}
+
+.gp-face-btn--y {
+  top: 33.5%;
+  left: 0;
+}
+
+.gp-face-btn--a {
+  top: 33.5%;
+  right: 0;
+}
+
+.gp-face-btn--b {
+  bottom: 0;
+  left: 33.5%;
+}
+
+/* ---- touchscreen ------------------------------------------------------------------------------- */
+
+/* The touch area is exactly 16:9 (the GamePad's 854×480 image), as large as the space allows. */
+.gp-touch-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  container-type: size;
+}
+
+.gp-touch {
+  position: relative;
+  width: min(100cqw - 14px, (100cqh - 14px) * 16 / 9);
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #2c3640, #1b2228);
+  box-shadow:
+    0 0 0 6px #fbfcfd,
+    0 0 0 7px var(--line),
+    0 6px 14px rgb(0 0 0 / 0.18);
+  overflow: hidden;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.gp-screen-hint {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 4px;
+  padding: 12px;
+  text-align: center;
+  color: #c9d3db;
+  font-size: 0.8rem;
+  pointer-events: none;
+}
+
+.gp-screen-hint strong {
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+.gp-touch-dot {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--led-on) 45%, transparent);
+  border: 2px solid var(--led-on);
+  pointer-events: none;
+}
+
+/* ---- − HOME + and stick clicks ----------------------------------------------------------------- */
+
+.gp-bottom {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: min(3vw, 18px);
+  padding: 2px 0 4px;
+}
+
+.gp-small .wm-cap {
+  width: min(11dvh, 40px);
+  aspect-ratio: 1;
+  font-size: 0.85rem;
+}
+
+.gp-home .wm-cap {
+  color: var(--accent);
+  font-size: 1.1rem;
+}
+
+/* ---- notices, rotate hint ---------------------------------------------------------------------- */
+
+.gp-notices {
+  left: calc(var(--grip-w) + 2vw);
+  right: calc(var(--grip-w) + 2vw);
+}
+
+.gp-rotate {
+  display: none;
+}
+
+@media (orientation: portrait) {
+  .gp-rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 16px;
+    padding: 24px;
+    text-align: center;
+    background: linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+    font-weight: 600;
+  }
+
+  .gp-rotate svg {
+    width: 72px;
+    height: 72px;
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+}
+
+.motion-button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}

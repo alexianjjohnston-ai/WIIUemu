@@ -7,6 +7,8 @@ import {
   CAMERA_WIDTH_RANGE,
   GAMEPAD_BUTTONS,
   MAX_BUTTONS,
+  MAX_MOTION_ACCEL_G,
+  MAX_MOTION_GYRO_DPS,
   MAX_CAMERA_PAYLOAD_BYTES,
   MAX_FRAME_BYTES,
   MAX_GYRO_RAD_S,
@@ -52,9 +54,11 @@ function checkVec2(v: unknown, min: number, max: number, errors: string[], where
   if (!inRange(v.y, min, max)) errors.push(`${where}.y must be a finite number in [${min},${max}]`);
 }
 
-function checkTriple(v: unknown, errors: string[], where: string): void {
+function checkTriple(v: unknown, errors: string[], where: string, max: number): void {
   if (!Array.isArray(v) || v.length !== 3 || !v.every(isFiniteNumber)) {
     errors.push(`${where} must be an array of 3 finite numbers`);
+  } else if (v.some((n) => Math.abs(n) > max)) {
+    errors.push(`${where} values must be within ±${max}`);
   }
 }
 
@@ -74,7 +78,11 @@ export function validateHello(msg: unknown): string[] {
   if (!isObject(msg)) return ['hello must be an object'];
   checkKeys(msg, ['type', 'protocol', 'token', 'role', 'deviceId', 'name'], errors, 'hello');
   if (msg.type !== 'hello') errors.push('type must be "hello"');
-  if (!Number.isInteger(msg.protocol) || (msg.protocol as number) < MIN_PROTOCOL_VERSION || (msg.protocol as number) > PROTOCOL_VERSION) {
+  if (
+    !Number.isInteger(msg.protocol) ||
+    (msg.protocol as number) < MIN_PROTOCOL_VERSION ||
+    (msg.protocol as number) > PROTOCOL_VERSION
+  ) {
     errors.push(`protocol must be an integer from ${MIN_PROTOCOL_VERSION} to ${PROTOCOL_VERSION}`);
   }
   if (typeof msg.token !== 'string' || msg.token.length === 0) errors.push('token must be a non-empty string');
@@ -131,9 +139,11 @@ export function validateInput(msg: unknown, role: Role): string[] {
       errors.push('motion must be an object or null');
     } else {
       checkKeys(m, ['accel', 'gyro', 'ts'], errors, 'motion');
-      checkTriple(m.accel, errors, 'motion.accel');
-      checkTriple(m.gyro, errors, 'motion.gyro');
-      if (!isFiniteNumber(m.ts)) errors.push('motion.ts must be a finite number');
+      checkTriple(m.accel, errors, 'motion.accel', MAX_MOTION_ACCEL_G);
+      checkTriple(m.gyro, errors, 'motion.gyro', MAX_MOTION_GYRO_DPS);
+      if (!Number.isSafeInteger(m.ts) || (m.ts as number) < 0) {
+        errors.push('motion.ts must be an integer with 0 <= ts < 2^53');
+      }
     }
   }
   return errors;
@@ -168,7 +178,8 @@ export function validateGyro(msg: unknown, lastT: number | null = null): string[
     if (t === undefined || !Number.isSafeInteger(t) || t < 0) errors.push(`samples[${i}] t_us must be an integer >= 0`);
     else if (prev !== null && t <= prev) errors.push(`samples[${i}] t_us must strictly increase`);
     else prev = t;
-    if (rates.some((r) => Math.abs(r) > MAX_GYRO_RAD_S)) errors.push(`samples[${i}] rate exceeds ${MAX_GYRO_RAD_S} rad/s`);
+    if (rates.some((r) => Math.abs(r) > MAX_GYRO_RAD_S))
+      errors.push(`samples[${i}] rate exceeds ${MAX_GYRO_RAD_S} rad/s`);
   }
   return errors;
 }
@@ -250,7 +261,11 @@ export function parseServerMessage(text: string): ServerMessage | null {
       return isFiniteNumber(msg.id) ? { type: 'pong', id: msg.id } : null;
     case 'error':
       return typeof msg.code === 'string'
-        ? { type: 'error', code: msg.code, message: typeof msg.message === 'string' ? msg.message : '' }
+        ? {
+            type: 'error',
+            code: msg.code,
+            message: typeof msg.message === 'string' ? msg.message : '',
+          }
         : null;
     case 'tracking': {
       const p = msg.pointer;
@@ -262,7 +277,13 @@ export function parseServerMessage(text: string): ServerMessage | null {
         Number.isInteger(msg.tags) &&
         isFiniteNumber(msg.fixes_per_s)
       ) {
-        return { type: 'tracking', state: msg.state, pointer, tags: msg.tags as number, fixes_per_s: msg.fixes_per_s };
+        return {
+          type: 'tracking',
+          state: msg.state,
+          pointer,
+          tags: msg.tags as number,
+          fixes_per_s: msg.fixes_per_s,
+        };
       }
       return null;
     }

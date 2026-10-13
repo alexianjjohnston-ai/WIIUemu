@@ -2,6 +2,48 @@
 
 Hand-off notes for the next session. Newest first.
 
+## 2026-10-12/13: Release 1.0 started (branch `feat/gamepad-controller`)
+
+PRs #1–#5 are merged into `main` with merge commits. The owner chose that 1.0 **includes GamePad screen streaming**.
+The plan is in `docs/release-1.0.md`.
+
+### Done
+- **Phone GamePad:**
+  - `components/gamepad/*` and `GamepadSession`;
+  - the engine carries sticks, touch and motion, coalesced to 16 ms;
+  - buttons and touch edges are sent at once.
+- **Motion:**
+  - `motion/convert.ts` and `MotionSensor`. The DSU convention comes from Cemu's motion handler (research.md §3).
+  - Engine-aware axes: WebKit reports `rotationRate` as x/y/z, while the spec says z/x/y (research.md §6b). This
+    also fixes the camera pointer's gyro on iPhones.
+- **Setup** assigns `controller0.xml` = WiiUConnect_GamePad. Profiles follow the bound DSU address (review fix
+  on #5).
+- **Review fixes on #5:**
+  - a Cemu update keeps `portable` safe when Cemu is running;
+  - game scans are cached, and status polls are sequential.
+
+### Tests
+- 141 Rust tests. Phone: 141 unit tests and 101 Playwright e2e tests, including 12 GamePad tests and Wii Remote
+  motion in both engine conventions.
+
+### Unverified
+- Everything on real hardware:
+  - GamePad layout on real phones;
+  - stick and motion directions in Cemu;
+  - touch accuracy against Cemu's GamePad view;
+  - iOS motion permission flow.
+- The checklist is in `docs/release-1.0.md`.
+
+### Next
+1. Open the PR for `feat/gamepad-controller`; the owner tests with the checklist.
+2. Work package 5, streaming:
+   - ADR-0002;
+   - a source check of Cemu's GamePad window title;
+   - a Windows.Graphics.Capture prototype;
+   - an H.264 encoder;
+   - WebCodecs on the phone with a JPEG fallback.
+3. Pointer calibration UI.
+
 ## 2026-10-12: Setup page and single-file release (branch `feat/setup-wizard`)
 
 The owner asked for one exe that handles emulator and game setup, "integrating Cemu and a Wii U downloader".

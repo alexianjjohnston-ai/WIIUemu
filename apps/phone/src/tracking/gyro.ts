@@ -1,25 +1,24 @@
 // Protocol 2 `gyro` streaming: DeviceMotionEvent.rotationRate → batched rad/s samples. Pure, unit-tested.
 
+import { deviceRates, type MotionConvention, type RotationRateLike } from '../motion/convert';
 import { MAX_GYRO_RAD_S, MAX_GYRO_SAMPLES, type GyroMessage } from '../protocol/types';
 
-export interface RotationRateLike {
-  alpha: number | null;
-  beta: number | null;
-  gamma: number | null;
-}
+export type { RotationRateLike };
 
 const DEG = Math.PI / 180;
 
 /**
- * W3C rotationRate (deg/s; beta about x, gamma about y, alpha about z) → `[x, y, z]` rad/s in the device frame.
- * Null when a value is missing or outside the protocol limit (the sample is skipped, never clamped).
+ * rotationRate (deg/s) → `[x, y, z]` rad/s in the W3C device frame. The axis order depends on the browser engine
+ * (see `deviceRates`). Null when a value is missing or outside the protocol limit (skipped, never clamped).
  */
-export function rotationRateToRad(r: RotationRateLike | null | undefined): [number, number, number] | null {
-  if (!r) return null;
-  const { alpha, beta, gamma } = r;
-  if (alpha === null || beta === null || gamma === null) return null;
-  const rad: [number, number, number] = [beta * DEG, gamma * DEG, alpha * DEG];
-  return rad.every((v) => Number.isFinite(v) && Math.abs(v) <= MAX_GYRO_RAD_S) ? rad : null;
+export function rotationRateToRad(
+  r: RotationRateLike | null | undefined,
+  convention: MotionConvention = 'w3c',
+): [number, number, number] | null {
+  const deg = deviceRates(r, convention);
+  if (!deg) return null;
+  const rad: [number, number, number] = [deg[0] * DEG, deg[1] * DEG, deg[2] * DEG];
+  return rad.every((v) => Math.abs(v) <= MAX_GYRO_RAD_S) ? rad : null;
 }
 
 export interface GyroBatcherOptions {

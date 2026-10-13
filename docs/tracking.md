@@ -89,6 +89,11 @@ So beyond about 1 m every tag vanished. The fixes:
 
 Still to verify on the real iPhone.
 
+**Follow-up (same day):** reading WebKit's source showed that iOS reports `rotationRate` as alpha/beta/gamma = device
+x/y/z, while the spec says z/x/y (research.md §6b). The phone sent permuted gyro axes, which the 2×2 gyro check
+cannot fully undo, because the yaw rate arrived on an axis it ignores. The phone now reads iOS axes correctly. Whether
+this cures the "wrong direction" symptom is **unverified** until the next iPhone test.
+
 ## Decision: detection runs on the PC
 
 See [ADR-0001](adr/0001-apriltag-detection-on-pc.md). The native AprilTag detector found all 10 rendered tags (IDs

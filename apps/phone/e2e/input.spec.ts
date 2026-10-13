@@ -117,3 +117,43 @@ test.describe('Wii Remote input', () => {
     await touch.up(1);
   });
 });
+
+test.describe('Wii Remote motion', () => {
+  test('held like a Wii Remote, the phone sends DSU motion; camera pointing switches to the upright grip', async ({
+    page,
+    server,
+  }) => {
+    await connectAsWiimote(page);
+    await expect(page.getByTestId('led-1')).toHaveAttribute('data-lit', 'true');
+    await page.getByTestId('motion-toggle').click();
+    await expect(page.getByTestId('motion-toggle')).toHaveAttribute('data-state', 'on');
+    const ios = await page.evaluate(() => /iPhone|iPad|iPod/.test(navigator.userAgent));
+    // Portrait phone lying flat, screen up (= a Wii Remote lying flat, buttons up).
+    const fire = (webkit: boolean) =>
+      page.evaluate((wk) => {
+        const g = 9.80665;
+        window.dispatchEvent(
+          new DeviceMotionEvent('devicemotion', {
+            accelerationIncludingGravity: { x: 0, y: 0, z: wk ? -g : g },
+            rotationRate: { alpha: 0, beta: 0, gamma: 0 },
+            interval: 16,
+          }),
+        );
+      }, webkit);
+    let mark = server.mark();
+    await fire(ios);
+    await expect
+      .poll(() => server.since(mark).some((m) => JSON.stringify(m.motion?.accel) === '[0,-1,0]'))
+      .toBe(true);
+
+    // Camera on: the phone stands upright with its back to the TV, so lying flat now reads as pointing at the
+    // ceiling: gravity along the controller's -z.
+    await page.getByTestId('camera-toggle').click();
+    await expect(page.getByTestId('camera-toggle')).toHaveAttribute('aria-pressed', 'true');
+    mark = server.mark();
+    await fire(ios);
+    await expect
+      .poll(() => server.since(mark).some((m) => JSON.stringify(m.motion?.accel) === '[0,0,-1]'))
+      .toBe(true);
+  });
+});
