@@ -265,9 +265,24 @@ fn responsive(h: HWND) -> bool {
 }
 
 /// Removes the title bar, the resizable frame and the menu of window `handle`, and moves it so that its client
-/// area is exactly `client` (screen coordinates), above other normal windows. Returns whether it ended up there.
+/// area is `client` (screen coordinates), above other normal windows. Returns whether it ended up there (within
+/// 2 px, for DPI rounding); false when Windows refused, e.g. for a program running as administrator.
 pub fn place_client(handle: u64, client: [i32; 4]) -> bool {
     fit_client(handle, client, true)
+}
+
+/// Raises window `handle` above other normal windows without activating, moving or resizing it.
+pub fn raise_window(handle: u64) -> bool {
+    let h = hwnd(handle);
+    if !responsive(h) {
+        return false;
+    }
+    // SAFETY: plain call with value arguments.
+    unsafe { SetWindowPos(h, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != 0 }
+}
+
+fn near(got: Option<[i32; 4]>, want: [i32; 4]) -> bool {
+    got.is_some_and(|g| g.iter().zip(want).all(|(a, b)| (a - b).abs() <= 2))
 }
 
 /// Like [`place_client`] for a window that is already placed: changes only what drifted, never raises it, and
@@ -330,7 +345,7 @@ fn fit_client(handle: u64, client: [i32; 4], raise: bool) -> bool {
             }
         }
     }
-    client_rect(handle) == Some(client)
+    near(client_rect(handle), client)
 }
 
 /// Puts back the style, extended style, menu and normal position saved by [`save_window`]. False when the

@@ -6,9 +6,9 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateMenu, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMenu, GetMessageW,
-    GetWindowLongPtrW, GetWindowRect, IsIconic, PostMessageW, PostQuitMessage, RegisterClassW, SetMenu, ShowWindow,
-    TranslateMessage, GWL_STYLE, MF_STRING, MSG, SW_MINIMIZE, SW_SHOWNOACTIVATE, WM_CLOSE, WM_DESTROY, WNDCLASSW,
-    WS_OVERLAPPEDWINDOW,
+    GetWindow, GetWindowLongPtrW, GetWindowRect, IsIconic, PostMessageW, PostQuitMessage, RegisterClassW, SetMenu,
+    ShowWindow, TranslateMessage, GWL_STYLE, GW_HWNDPREV, MF_STRING, MSG, SW_MINIMIZE, SW_SHOWNOACTIVATE, WM_CLOSE,
+    WM_DESTROY, WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 
 fn wide(s: &str) -> Vec<u16> {
@@ -146,4 +146,21 @@ pub fn minimize(handle: u64) {
 pub fn is_minimized(handle: u64) -> bool {
     // SAFETY: plain query.
     unsafe { IsIconic(handle as usize as HWND) != 0 }
+}
+
+/// Window `a` is above window `b` in the z-order.
+pub fn above(a: u64, b: u64) -> bool {
+    let mut h = b as usize as HWND;
+    // SAFETY: walking the z-order upwards from `b` with plain queries.
+    unsafe {
+        loop {
+            h = GetWindow(h, GW_HWNDPREV);
+            if h.is_null() {
+                return false;
+            }
+            if h as usize as u64 == a {
+                return true;
+            }
+        }
+    }
 }

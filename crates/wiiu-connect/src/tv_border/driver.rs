@@ -1,7 +1,7 @@
 //! Applies the border: find Cemu, draw the tags, move Cemu inside, and undo it all. Platform calls go through
 //! [`Desktop`], so this logic is tested with a fake on every platform.
 
-use super::cemu::{choose_main_window, WindowInfo};
+use super::cemu::{choose_gamepad_window, choose_main_window, WindowInfo};
 use super::recovery::{delete_record, read_record, recovery, write_record, Recovery, SavedWindow};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -27,6 +27,8 @@ pub trait Desktop {
     /// Puts the frame, menu and client area back to what [`Desktop::place`] made them if Cemu changed them, without
     /// raising, un-minimising or activating the window, and without touching a window that isn't responding.
     fn keep(&mut self, handle: u64, client: [i32; 4]) -> bool;
+    /// Raises a window above the others without activating it.
+    fn raise(&mut self, handle: u64);
     /// False when the window is gone or not responding.
     fn restore(&mut self, saved: &SavedWindow) -> bool;
     /// Black window over `monitor` with `white` cells (relative to the monitor's top-left).
@@ -62,6 +64,9 @@ pub struct Driver<D: Desktop> {
     desktop: D,
     record: PathBuf,
     applied: Option<Applied>,
+    /// Cemu's window that couldn't be moved, and why: not retried until the border is turned off or Cemu's window
+    /// changes, so the border doesn't flash on and off.
+    failed: Option<(u64, String)>,
 }
 
 fn rect(r: PixelRect, dx: i32, dy: i32) -> [i32; 4] {
@@ -95,6 +100,7 @@ impl<D: Desktop> Driver<D> {
             desktop,
             record,
             applied: None,
+            failed: None,
         }
     }
 
@@ -118,9 +124,13 @@ impl<D: Desktop> Driver<D> {
             want,
             self.applied.as_ref().map(|a| (a.saved.handle, a.saved.pid, a.client)),
         ) {
-            (false, None) => TvStatus::Off,
+            (false, None) => {
+                self.failed = None;
+                TvStatus::Off
+            }
             (false, Some(_)) => {
                 self.undo();
+                self.failed = None;
                 TvStatus::Off
             }
             (true, Some((handle, pid, _))) => {
@@ -190,7 +200,15 @@ impl<D: Desktop> Driver<D> {
         let Some(cemu) = choose_main_window(&windows) else {
             return TvStatus::WaitingForCemu;
         };
-        let handle = cemu.handle;
+        let (handle, pid) = (cemu.handle, cemu.pid);
+        if let Some((failed, message)) = &self.failed {
+            if *failed == handle {
+                return TvStatus::Error {
+                    message: message.clone(),
+                };
+            }
+        }
+        let pad = choose_gamepad_window(&windows, pid).map(|w| w.handle);
         let Some(monitor) = self.desktop.monitor(handle) else {
             return TvStatus::Error {
                 message: "couldn't find the display that shows Cemu".into(),
@@ -216,7 +234,18 @@ impl<D: Desktop> Driver<D> {
             };
         }
         if !self.desktop.place(handle, client) {
-            tracing::warn!("Cemu's window didn't land exactly on {client:?}");
+            // Windows refused (e.g. Cemu runs as administrator): don't leave a black screen over it.
+            tracing::warn!("couldn't move Cemu's window into the TV border; undoing");
+            self.desktop.restore(&saved);
+            self.desktop.hide_border();
+            delete_record(&self.record);
+            let message = "couldn't move Cemu's window (is Cemu running as administrator?)".to_string();
+            self.failed = Some((handle, message.clone()));
+            return TvStatus::Error { message };
+        }
+        // Cemu's separate GamePad window stays visible above the border and the game (it may cover a tag or two).
+        if let Some(pad) = pad {
+            self.desktop.raise(pad);
         }
         self.applied = Some(Applied { saved, monitor, client });
         on(client)
@@ -304,6 +333,35 @@ mod tests {
         assert_eq!(d.desktop().placed.len(), 1);
         assert_eq!(d.desktop().kept, vec![client]);
         assert_eq!(d.desktop().borders_shown, 1);
+    }
+
+    #[test]
+    fn cemus_gamepad_window_stays_above_the_border() {
+        let path = record_path("pad");
+        let mut d = Driver::new(Fake::with_cemu(path.clone()), path.clone());
+        d.tick(true);
+        assert_eq!(d.desktop().raised, vec![0x10], "the GamePad View window");
+        d.tick(true);
+        assert_eq!(d.desktop().raised.len(), 1, "keep-in-place doesn't change the order");
+    }
+
+    #[test]
+    fn if_cemu_cant_be_moved_everything_is_undone_and_not_retried_until_asked_again() {
+        let path = record_path("noplace");
+        let mut d = Driver::new(Fake::with_cemu(path.clone()), path.clone());
+        d.desktop.place_ok = false; // e.g. Cemu runs as administrator
+        assert!(matches!(d.tick(true), TvStatus::Error { .. }));
+        assert_eq!(d.desktop().restored, vec![saved_state()]);
+        assert!(d.desktop().border.is_none(), "no black screen left over Cemu");
+        assert!(!path.exists());
+        // Staying on doesn't flash the border on and off.
+        assert!(matches!(d.tick(true), TvStatus::Error { .. }));
+        assert_eq!(d.desktop().borders_shown, 1);
+        // Turning it off and on again (or a new Cemu window) tries again.
+        assert_eq!(d.tick(false), TvStatus::Off);
+        d.desktop.place_ok = true;
+        assert!(matches!(d.tick(true), TvStatus::On { .. }));
+        assert_eq!(d.desktop().borders_shown, 2);
     }
 
     #[test]

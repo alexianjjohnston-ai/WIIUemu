@@ -19,6 +19,19 @@ pub fn choose_main_window(windows: &[WindowInfo]) -> Option<&WindowInfo> {
         .find(|w| w.exe_name.eq_ignore_ascii_case("cemu.exe") && w.title.starts_with("Cemu "))
 }
 
+/// Cemu's separate GamePad window, belonging to process `pid`. Cemu creates it titled with the translated
+/// `"GamePad View"` (`src/gui/wxgui/PadViewFrame.cpp`) and retitles it `"<GamePad View> - FPS: <n>"` while a game
+/// runs (`src/gui/wxgui/wxWindowSystem.cpp`, Cemu main `2c212b5`). So: not the main window, and either the English
+/// title or an FPS suffix (any language while a game runs).
+pub fn choose_gamepad_window(windows: &[WindowInfo], pid: u32) -> Option<&WindowInfo> {
+    windows.iter().find(|w| {
+        w.pid == pid
+            && w.exe_name.eq_ignore_ascii_case("cemu.exe")
+            && !w.title.starts_with("Cemu ")
+            && (w.title == "GamePad View" || w.title.starts_with("GamePad View - ") || w.title.contains(" - FPS: "))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,5 +78,40 @@ mod tests {
     #[test]
     fn the_exe_name_is_case_insensitive() {
         assert!(choose_main_window(&[win(1, "Cemu 2.6", "cemu.EXE")]).is_some());
+    }
+
+    #[test]
+    fn finds_the_gamepad_window_of_the_same_cemu_in_any_language_while_a_game_runs() {
+        let main = win(
+            2,
+            "Cemu 2.6 - FPS: 59.94 Vulkan [TitleId: 00050000-101c9400] Zelda",
+            "Cemu.exe",
+        );
+        for title in [
+            "GamePad View",
+            "GamePad View - FPS: 59.94",
+            "GamePad-Ansicht - FPS: 59.94",
+        ] {
+            let windows = [main.clone(), win(7, title, "Cemu.exe")];
+            assert_eq!(
+                choose_gamepad_window(&windows, 42).map(|w| w.handle),
+                Some(7),
+                "{title}"
+            );
+        }
+        for (title, exe, pid) in [
+            ("General settings", "Cemu.exe", 42),
+            ("GamePad View", "notepad.exe", 42),
+            ("GamePad View", "Cemu.exe", 43), // another Cemu
+        ] {
+            let other = WindowInfo {
+                pid,
+                ..win(7, title, exe)
+            };
+            assert!(
+                choose_gamepad_window(&[main.clone(), other], 42).is_none(),
+                "{title} {exe} {pid}"
+            );
+        }
     }
 }

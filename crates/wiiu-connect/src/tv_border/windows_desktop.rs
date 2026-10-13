@@ -83,6 +83,10 @@ impl Desktop for WindowsDesktop {
         tv::keep_client(handle, client)
     }
 
+    fn raise(&mut self, handle: u64) {
+        tv::raise_window(handle);
+    }
+
     fn restore(&mut self, saved: &SavedWindow) -> bool {
         tv::restore_window(saved.handle, &state(saved))
     }
