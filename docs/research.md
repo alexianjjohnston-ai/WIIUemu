@@ -145,6 +145,6 @@ Used by the setup page (`crates/wiiu-cemu/src/install.rs`, `crates/wiiu-connect/
 ## 8. Not yet investigated
 
 - Running the Wii U Menu with user-dumped system files in the current Cemu build (Milestone 6).
-- GamePad window capture options on Windows: Windows.Graphics.Capture or DXGI duplication of Cemu's separate
-  GamePad window (1.0 work package 5, see docs/release-1.0.md).
+- GamePad window capture on Windows: the window facts (title, `open_pad`, the letterboxed image area) are in
+  ADR-0002. The capture method itself is still to be prototyped.
 - Whether games read the `dist` and `horizon` fields of the DPD data, which DSU cannot provide.

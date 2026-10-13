@@ -24,7 +24,7 @@ A feature counts as done only after it has been verified on real hardware and re
 | 7 | Hardware verification pass (checklist below) | owner |
 | 8 | Versioning, release notes, tag `v1.0.0` → GitHub Release (Windows zip, macOS zip) | not started |
 
-## Package 5: GamePad screen streaming (design to be confirmed in ADR-0002)
+## Package 5: GamePad screen streaming (design: [ADR-0002](adr/0002-gamepad-screen-streaming.md), proposed)
 
 Cemu can show the GamePad image in a separate window (*View → Separate GamePad view*). The plan:
 1. **Capture** that window on Windows with Windows.Graphics.Capture. It works while the window is covered and
