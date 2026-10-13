@@ -11,6 +11,9 @@ One download for Windows: start it, and the setup page gets Cemu ready.
 A feature counts as done only after it has been verified on real hardware and recorded in
 [compatibility.md](compatibility.md). Automated tests alone are not enough.
 
+What comes next, including what 1.0 still needs (the marker border during real play) and the features after 1.0,
+is in [roadmap.md](roadmap.md).
+
 ## Work packages
 
 | # | Package | State |
