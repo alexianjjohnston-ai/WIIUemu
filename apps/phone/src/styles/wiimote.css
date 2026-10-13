@@ -641,7 +641,6 @@
   width: fit-content;
   align-items: center;
   gap: 8px;
-  max-width: 100%;
   margin-top: 6px;
   padding: 4px 4px 4px 12px;
   border-radius: 999px;
@@ -654,6 +653,22 @@
 .calibration-line .btn--small {
   padding: 0.3rem 0.8rem;
   font-size: 0.8rem;
+}
+
+/* The camera lines float over the top of the screen: keep them clear of the B zone at any font width. */
+.camera-line,
+.calibration-line {
+  max-width: calc(100% - var(--bzone-w) - 8px);
+}
+
+.calibration-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calibration-line .btn {
+  flex: none;
 }
 
 /* Left-handed: the B zone is on the left edge, so the camera lines go to the right, over the remote's top. */
@@ -681,7 +696,6 @@
   width: fit-content;
   align-items: center;
   gap: 8px;
-  max-width: 100%;
   margin-top: 6px;
   padding: 6px 12px;
   border-radius: 999px;
