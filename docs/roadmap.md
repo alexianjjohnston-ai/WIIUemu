@@ -107,14 +107,3 @@ Downloading games, system files or console keys. Players use their own dumps (RE
 
 Added on request the same day: haptic feedback (PR #27), and the PC side in its own app window instead of a
 browser tab ([ADR-0003](adr/0003-desktop-app-window.md)). Order of work: haptics, app window, marker border.
-
-## Decisions for the owner (as asked)
-
-1. **Beta:** cut `0.9.0-beta.1` now (after #22 merges)?
-2. **Marker border during play:** is a smaller game picture (option A) acceptable, or should the motion-only
-   pointer (C) be the default?
-3. **Order after the beta:** marker border (1.2) before streaming (1.3)? I recommend yes. Without it, camera
-   pointing doesn't work in real games, and it is smaller than streaming.
-4. **Code signing:** buy a certificate for 1.0, or ship 1.0 with the SmartScreen notice?
-5. **After 1.0:** is the order of Part 2 right? Pro Controller support is first because it widens the playable
-   game list the most.

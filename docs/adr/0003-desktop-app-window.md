@@ -53,7 +53,10 @@ embedded web view (`wry` + `tao`). No browser tab opens and no console window sh
   Ctrl+C today. The window title says "Wii U Connect — running"; closing it is the only way to stop, as with the
   console window today.
 - A second start finds the first copy (today's `already_running` check) and asks it to bring its window to the front
-  (`POST /api/app/show`, loopback only, through `reject_remote`), then exits.
+  (`POST /api/app/show`), then exits. The endpoint uses the same guard as the setup actions
+  (`setup_http::check_post`: loopback peer and Host, `Content-Type: application/json`, and an `Origin` equal to
+  `http://<Host>`). The second copy sends those headers itself. A web page in a browser can't forge that `Origin`,
+  so it can't keep pulling the window to the front.
 
 ### Window and pages
 
@@ -93,7 +96,9 @@ and zips it. Without notarisation, Gatekeeper asks once: the release notes expla
   tests. The `--no-window` / Linux choice is tested through argument parsing.
 - **Windows CI and release:** a hidden `--window-self-test` flag starts the app, waits for the web view's
   page-load event of `/setup`, prints `window ok <url>` and exits. The release smoke test runs it on the Windows
-  runner, which has the WebView2 runtime. The existing `dumpbin` check proves no `WebView2Loader.dll` dependency.
+  runner, which has the WebView2 runtime. The `dumpbin /dependents` check in `release.yml` today fails only on C
+  runtime DLLs. It gains `webview2loader` in its rejected list, so a dependency update that switches to the DLL
+  loader fails the release build instead of shipping an exe that breaks on a clean PC.
 - **macOS CI and release:** the same self-test on the macOS runner, plus a check of the bundle layout and
   `Info.plist`.
 - **Owner:** double-click on a real Windows PC and Mac; recorded in `docs/compatibility.md`.

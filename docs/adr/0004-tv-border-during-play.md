@@ -23,9 +23,15 @@ Facts:
   normalised to the game area. The phones' trackers already use this layout.
 - With that layout the full border is 1.42 × the game height, so on a 1920×1080 screen the game area is
   1351×760 px (70 % of the height, about half the area).
-- Cemu's game picture is drawn in its main window below the menu bar. The exact window class and child layout are
-  **unverified**; the design finds the window by process and measures the client area instead of assuming a
-  class name.
+- Cemu's game picture is drawn in its main window below the menu bar. The window class and child layout are
+  **unverified**, so the design measures the client area instead of assuming a class name.
+- Window titles (Cemu `main`, 2026-10-13):
+  - The main window's title always starts with `BUILD_VERSION_WITH_NAME_STRING`, which is `"Cemu "` followed by
+    the version (`src/Common/version.h`). The FPS and game name are appended after it
+    (`src/gui/wxgui/wxWindowSystem.cpp`, `windowText = BUILD_VERSION_WITH_NAME_STRING`).
+  - The separate GamePad window is titled with the translated `_("GamePad View")`, plus `" - FPS: …"` while a game
+    runs (`src/gui/wxgui/PadViewFrame.cpp`, same `wxWindowSystem.cpp`).
+  - Cemu hides and recreates its own menu bar in some situations (`MainWindow::SetMenuVisible`, `RecreateMenu`).
 
 ## Decision
 
@@ -55,8 +61,10 @@ quits.** macOS and Linux keep the `/tracking` page for now.
    at least one camera is on, and hides 3 s after the last camera turns off, so a quick reconnect doesn't make the
    game jump. Tested as a state machine with a fake clock.
 3. **`tv_window` (Windows only, `windows-sys`).**
-   - **Find Cemu:** the visible top-level window of the Cemu process Wii U Connect started or found (`Cemu.exe`
-     path from setup) with the largest area. That is the main window, not the "GamePad View" window.
+   - **Find Cemu:** among the visible top-level windows of the Cemu process (`Cemu.exe` path from setup), the one
+     whose title starts with `"Cemu "`. That is the main window in any UI language and at any size. The GamePad
+     window's title is the translated "GamePad View" and is never chosen. If no title matches, the border stays off
+     and the setup page says "Waiting for Cemu's game window".
    - **Border window:** `WS_POPUP`, not topmost, covering the monitor that holds most of Cemu's window
      (`MonitorFromWindow`). It paints black, then the tags rendered by `wiiu_tracking::tags` into one bitmap
      (`StretchDIBits` with nearest-neighbour, so tag edges stay sharp).
@@ -65,8 +73,18 @@ quits.** macOS and Linux keep the `/tracking` page for now.
      with `AdjustWindowRectEx` on the new style, then checked with `GetClientRect`/`ClientToScreen`). Z-order:
      Cemu's main window directly above the border window. Cemu's GamePad window, if on the same monitor, stays above
      both: it may hide a tag or two, and tracking needs only two.
+   - **Keep in place:** while the border shows, a 1 s check re-applies the style, the hidden menu and the
+     position if Cemu changed them, for example when it recreates its menu or the player toggles its full screen.
    - **Restore:** put back the saved style, menu and placement. It runs when the border hides, from the shutdown
      path, and from a panic hook. If Cemu exits first, the border just closes.
+   - **Recovery after a crash or a Task Manager kill:** before changing Cemu's window, Wii U Connect writes
+     `tv-border-restore.json` to its data folder: Cemu's process id and start time, the window handle, the saved
+     style, extended style and placement, and the menu handle. `SetMenu(hwnd, null)` detaches the menu without
+     destroying it, so that handle stays valid while Cemu runs. A clean restore deletes the file. On the next start,
+     if the file exists, the same Cemu process still runs (pid and start time match) and the window handle still
+     belongs to it, the saved style and placement are put back, and the menu too if `IsMenu` still accepts its
+     handle. Then the file is deleted. If anything doesn't match, the file is just deleted, and restarting Cemu
+     gives it a normal window again.
 4. **Wiring.** The tracking workers already know which Wii Remotes have camera pointing on. They report the count to
    the controller, and a small task applies the controller's output through `tv_window` (Windows) or does nothing
    (other platforms).
@@ -85,11 +103,14 @@ the game picture" when the border is on. The PC reports this in the existing `tr
 
 ## Testing
 
-- Unit: `tv_layout` (above), the controller state machine, and the save/restore bookkeeping of `tv_window` behind
-  a trait with a fake.
+- Unit: `tv_layout` (above), the controller state machine, the window choice by title (Cemu titles in English,
+  German and Japanese, with and without the FPS suffix), the save/restore bookkeeping behind a trait with a fake,
+  and the recovery file (written before a change, deleted after a restore, applied only to the same process).
 - **Windows CI:** an integration test opens a stand-in "Cemu" window (title bar, menu, thick frame) in the test
   process. It shows the border, checks that the stand-in's client area equals the game rectangle on the runner's
-  monitor, hides the border, and checks that style, menu and rectangle are back to the originals.
+  monitor, hides the border, and checks that style, menu and rectangle are back to the originals. A second case
+  kills the process that applied the border (a child process) and checks that the next start restores the
+  stand-in from the recovery file.
 - **Release workflow (Windows):** start the built-in Cemu, wait up to 20 s for its main window, show and hide the
   border, and check the same. If Cemu can't open a window on the runner (no GPU), the step reports that and is
   marked not verified instead of passing.
