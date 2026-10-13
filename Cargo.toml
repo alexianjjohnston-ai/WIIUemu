@@ -14,6 +14,7 @@ wiiu-controller = { path = "crates/wiiu-controller" }
 wiiu-cemu = { path = "crates/wiiu-cemu" }
 wiiu-tracking = { path = "crates/wiiu-tracking" }
 wiiu-apriltag-sys = { path = "crates/wiiu-apriltag-sys" }
+wiiu-desktop-sys = { path = "crates/wiiu-desktop-sys" }
 
 anyhow = "1"
 thiserror = "2"

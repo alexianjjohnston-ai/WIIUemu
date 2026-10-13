@@ -63,16 +63,22 @@ The Wii Remote screen has the same motion button for shaking and twisting.
 
 ## 4. Camera pointing (experimental)
 
-1. Open `http://localhost:8737/tracking` on the TV or monitor and make it fullscreen (F11).
+1. **Windows:** start a game in Cemu. The setup page's **TV border** card should be on **Auto**. When a phone turns
+   its camera on, black-and-white squares appear around the game on the screen that shows Cemu, and the game
+   shrinks to fit inside them. They go away about 3 s after the last camera turns off, and Cemu's window goes back to
+   how it was. **On** keeps them up and **Off** never shows them.
+   **macOS and Linux:** open `http://localhost:8737/tracking` on the TV or monitor and make it fullscreen (F11).
 2. On the phone, tap the **camera icon** and allow camera and motion access.
 3. Hold the phone upright with its back camera facing the screen. A ring should follow your aim, and the phone
    shows "Aiming at the TV · N tags · N fps".
-4. **Calibrate once per phone:** tap **Calibrate pointer**, then aim at the cross in the middle of the `/tracking`
-   page during the 3-second countdown and hold still. The phone shows "Calibrated ✓" and remembers it; the ring
-   should now sit where you aim. **Recalibrate** or **Reset** appear while the PC sees the border.
+4. **Calibrate once per phone:** tap **Calibrate pointer**, then aim at the middle of the game (or at the cross in
+   the middle of the `/tracking` page) during the 3-second countdown and hold still. The phone shows
+   "Calibrated ✓" and remembers it; the ring should now sit where you aim. **Recalibrate** or **Reset** appear
+   while the PC sees the border.
 
-There's no in-game overlay yet. For a rough in-game try, place Cemu's window over the dark middle of the
-`/tracking` page without covering the markers.
+With the TV border, also check: does Cemu's window come back exactly as it was (title bar, menu, size, full
+screen) when the border goes away, when you close Wii U Connect, and after you end Wii U Connect in Task Manager and
+start it again? Does the game picture stay inside the squares when you toggle Cemu's full screen?
 
 ## What to report
 

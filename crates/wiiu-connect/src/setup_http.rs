@@ -24,6 +24,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/setup/controllers", post(controllers))
         .route("/api/setup/games", post(add_games))
         .route("/api/setup/launch", post(launch))
+        .route("/api/setup/tv-border", post(tv_border))
 }
 
 fn err(status: StatusCode, message: impl Into<String>) -> Response {
@@ -100,6 +101,10 @@ async fn status(
                 "phones": state.sessions.status(),
                 // Contains the pairing token: this endpoint is PC-only (`reject_remote`), like `/pair`.
                 "phone_url": state.config.phone_url(state.sessions.token()),
+                "tv_border": {
+                    "mode": state.tv_border.mode(),
+                    "status": state.tv_border.status(),
+                },
             }))
             .into_response();
             no_store(&mut r);
@@ -193,6 +198,37 @@ async fn locate(
     match tokio::task::spawn_blocking(move || setup.locate(&dir)).await {
         Ok(Ok(c)) => Json(c).into_response(),
         Ok(Err(e)) => setup_err(e),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+/// The TV border switch: `{ "mode": "auto" | "on" | "off" }`. Applies at once and is saved for the next start.
+async fn tv_border(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    if let Some(r) = check_post(peer, &headers) {
+        return r;
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Req {
+        mode: crate::tv_border::TvBorderMode,
+    }
+    let Ok(req) = serde_json::from_slice::<Req>(&body) else {
+        return err(StatusCode::BAD_REQUEST, "mode must be \"auto\", \"on\" or \"off\"");
+    };
+    let setup = setup_or_404!(state);
+    // Applied even if saving fails: turning the border off must always work right away.
+    state.tv_border.set_mode(req.mode);
+    match tokio::task::spawn_blocking(move || setup.set_tv_border_mode(req.mode)).await {
+        Ok(Ok(())) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Err(e)) => err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("changed for now, but couldn't save it for the next start: {e}"),
+        ),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }

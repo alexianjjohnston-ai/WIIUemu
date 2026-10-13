@@ -4,6 +4,12 @@
 > phones, PC-side detection and the phone's camera and gyro streaming are implemented. They are tested
 > synthetically and with a simulated phone camera. The calibration UI is built (protocol messages `calibrate`,
 > `aim`, `calibration`). Not done yet: physical measurements on real phones.
+>
+> **TV border during play (2026-10-13, Windows):** while a Wii Remote phone's camera is on, Wii U Connect draws the
+> same tags around Cemu's game and shrinks the game to fit (`crates/wiiu-connect/src/tv_border/`,
+> [ADR-0004](adr/0004-tv-border-during-play.md)). `wiiu_tracking::screen_layout` computes the pixels with the same
+> math as the `/tracking` page. Phones get `border: "game"` in `tracking` messages and say "Aim at the middle of the
+> game" when calibrating. Unverified with real Cemu on a TV.
 
 ## Important ergonomic constraint: camera orientation
 

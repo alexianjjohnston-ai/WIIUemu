@@ -105,6 +105,9 @@ pub enum ServerMessage {
         pointer: Option<PointerXy>,
         tags: u32,
         fixes_per_s: f32,
+        /// Where the tags are: around the game (TV border) or on the `/tracking` page.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        border: Option<BorderKind>,
     },
     /// Protocol ≥ 2: result of a `calibrate` request.
     Calibration {
@@ -140,6 +143,16 @@ impl ServerMessage {
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("server messages always serialize")
     }
+}
+
+/// Where the camera-tracking tags are shown (`tracking.border`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BorderKind {
+    /// Around Cemu's game picture (TV border, ADR-0004).
+    Game,
+    /// On the `/tracking` page.
+    Page,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -738,10 +751,22 @@ mod tests {
             pointer: Some(PointerXy { x: 0.5, y: 0.25 }),
             tags: 3,
             fixes_per_s: 12.5,
+            border: None,
         };
         assert_eq!(
             m.to_json(),
             r#"{"type":"tracking","state":"gyro_only","pointer":{"x":0.5,"y":0.25},"tags":3,"fixes_per_s":12.5}"#
+        );
+        let m = ServerMessage::Tracking {
+            state: TrackingState::Tracking,
+            pointer: None,
+            tags: 7,
+            fixes_per_s: 28.5,
+            border: Some(BorderKind::Game),
+        };
+        assert_eq!(
+            m.to_json(),
+            r#"{"type":"tracking","state":"tracking","pointer":null,"tags":7,"fixes_per_s":28.5,"border":"game"}"#
         );
     }
 

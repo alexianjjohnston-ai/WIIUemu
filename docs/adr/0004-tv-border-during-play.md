@@ -1,6 +1,6 @@
 # ADR-0004: Draw the TV marker border around Cemu's game window
 
-**Status:** Proposed (design approved in conversation 2026-10-13; this written design awaits the owner's review)
+**Status:** Accepted (owner approved 2026-10-13); built on Windows, see "As built" at the end
 **Date:** 2026-10-13
 **Deciders:** repository owner; lead engineer
 
@@ -19,10 +19,11 @@ Owner answers (2026-10-13):
 
 Facts:
 - The marker layout is `wiiu_tracking::markers::MarkerLayout::border(&BorderConfig::default())`: 16:9 game area,
-  tags 20 % of the game height, a gap of 1 %, 4 tags per horizontal edge and 3 per vertical edge, coordinates
-  normalised to the game area. The phones' trackers already use this layout.
-- With that layout the full border is 1.42 × the game height, so on a 1920×1080 screen the game area is
-  1351×760 px (70 % of the height, about half the area).
+  tags 20 % of the game height, a gap of 3 % (1 % when this was written; see "As built"), 4 tags per horizontal
+  edge and 3 per vertical edge, coordinates normalised to the game area. The phones' trackers already use this
+  layout.
+- With that layout and the tags' one-cell white quiet zone, the full border is 1.51 × the game height. On a
+  1920×1080 screen, with the `/tracking` page's 2 % margin, the game area is 1221×687 px (64 % of the height).
 - Cemu's game picture is drawn in its main window below the menu bar. The window class and child layout are
   **unverified**, so the design measures the client area instead of assuming a class name.
 - Window titles (Cemu `main`, 2026-10-13):
@@ -125,3 +126,46 @@ the game picture" when the border is on. The PC reports this in the existing `tr
 - Wii U Connect changes another program's window. Every change is saved and restored, and the setup switch can turn
   it off.
 - macOS and Linux keep the browser `/tracking` page until a later port.
+
+## As built (2026-10-13, PR #29)
+
+Differences from the design above, each decided while building it:
+
+- **Gap 0.03, not 0.01.** With a 1 % gap, the tags' white quiet zone (one tag cell, 2.5 % of the game height)
+  covered the edge of the game picture. A test now keeps every quiet zone outside the game
+  (`markers::tests::quiet_zones_stay_outside_the_game`). The phones' trackers use the same layout, so nothing
+  else changed. Game area on 1920×1080: 1221×687.
+- **Pixel layout shared with the page.** `wiiu_tracking::screen_layout` is a port of the `/tracking` page's
+  math (2 % margin, quiet zones), so the Windows border and the page draw the same border.
+- **Painting:** the border window fills each white cell with `FillRect` on black. It isn't a stretched bitmap, but
+  edges stay just as sharp.
+- **Finding Cemu:** the window must belong to a process whose exe is named `Cemu.exe` (any case) and its title must
+  start with `"Cemu "`. The exe name is used instead of the setup's Cemu path, so a Cemu the player started from
+  elsewhere also works.
+- **Keep in place** runs on every 250 ms tick, not every 1 s. It changes Cemu's window only if its frame, menu or
+  client area drifted, never raises or activates it, leaves it minimised if the player minimised it, and skips a
+  window that is "Not responding". A menu bar Cemu rebuilt is recorded as the one to restore. A display change
+  (resolution, scaling, another monitor) redraws the border there.
+- **Cemu's GamePad window** (the `Cemu.exe` window titled "GamePad View", or with an FPS suffix in any language;
+  `PadViewFrame.cpp` and `wxWindowSystem.cpp`, Cemu main `2c212b5`) is raised above the border and the game after
+  placing, as designed. It may cover a tag or two.
+- **If Cemu can't be moved** (Windows refuses for a Cemu running as administrator), the border is undone at once
+  and the setup page shows an error. It is not retried for the same Cemu window until the border is turned off
+  and on again, so it doesn't flash.
+- **Stopping:** besides Ctrl+C, Wii U Connect handles the console window closing, Ctrl+Break, log-off and shut-down
+  (Windows allows about 5 s), so closing its window restores Cemu. A restore that fails while Cemu still runs
+  (not responding) keeps the recovery file for the next start.
+- **Setup page:** the status reads "On: game 1221×687" (no display name), and on macOS and Linux "Windows only for
+  now".
+- **No panic hook.** Restoring from a panic hook would run Win32 calls in an unknown state. The recovery file covers
+  crashes, kills and panics alike: it is written before Cemu's window changes, and the next start repairs the
+  window (`tv_border::driver::Driver::recover`). A clean stop restores at once.
+- **Tests:** the driver (apply, keep, undo, Cemu closing, shutdown, recovery) runs against a fake desktop on every
+  platform. Windows CI runs the Win32 layer against a real stand-in window: listing, client placement and full
+  restore, the border window opening on the monitor and closing, and a closed window reported as gone
+  (`crates/wiiu-desktop-sys/tests/tv_windows.rs`). The child-process kill case is covered by the recovery tests
+  with the fake, not by a real killed process.
+- **Deferred:** the release-workflow check with the real built-in Cemu. Behaviour with real Cemu and a real TV is
+  **unverified** until it is tested (`docs/compatibility.md`).
+- **Phones:** `tracking` carries `border: "game" | "page"` (docs/controller-protocol.md). During calibration the
+  phone says "Aim at the middle of the game" when it is `game`.

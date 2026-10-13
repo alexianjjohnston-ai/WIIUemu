@@ -123,4 +123,22 @@ test.describe('camera pointing', () => {
     await expect(row).toHaveAttribute('data-status', 'none');
     expect(server.violations).toEqual([]);
   });
+
+  test('with the tags around the game, calibration asks to aim at the middle of the game', async ({
+    page,
+    server,
+  }) => {
+    await connectAsWiimote(page);
+    await page.getByTestId('camera-toggle').click();
+    await expect(page.getByTestId('camera-status')).toHaveAttribute('data-kind', 'waiting');
+    server.sendTracking({ state: 'tracking', pointer: { x: 0.5, y: 0.5 }, tags: 14, fixes_per_s: 29, border: 'game' });
+    const row = page.getByTestId('calibration');
+    await page.getByTestId('calibrate').click();
+    // No cross is drawn over the game, so the hint names what is on the TV.
+    await expect(row).toHaveText('Aim at the middle of the game · 3');
+    await expect.poll(() => server.calibrateRequests.length, { timeout: 5000 }).toBe(1);
+    server.sendCalibration({ ok: false, point: null, reason: 'off_image' });
+    await expect(row).toContainText('Aim at the game');
+    expect(server.violations).toEqual([]);
+  });
 });

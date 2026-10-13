@@ -1,6 +1,7 @@
 //! WebSocket endpoint for phones (`/ws`).
 
 use crate::session::SessionManager;
+use crate::tv_border::TvBorder;
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -69,7 +70,12 @@ async fn next_message(socket: &mut WebSocket) -> Result<Option<Incoming>, &'stat
     }
 }
 
-pub async fn handle(mut socket: WebSocket, sessions: Arc<SessionManager>, peer: std::net::SocketAddr) {
+pub async fn handle(
+    mut socket: WebSocket,
+    sessions: Arc<SessionManager>,
+    tv_border: Arc<TvBorder>,
+    peer: std::net::SocketAddr,
+) {
     // 1. hello
     let first = match tokio::time::timeout(HELLO_TIMEOUT, next_message(&mut socket)).await {
         Err(_) => return fail(&mut socket, ErrorCode::Timeout, "no hello within 5 s").await,
@@ -110,6 +116,7 @@ pub async fn handle(mut socket: WebSocket, sessions: Arc<SessionManager>, peer: 
     if send(&mut socket, &welcome).await {
         let ctx = SessionCtx {
             sessions: sessions.clone(),
+            tv_border,
             conn_id,
             slot,
             role: assignment.role,
@@ -123,6 +130,7 @@ pub async fn handle(mut socket: WebSocket, sessions: Arc<SessionManager>, peer: 
 
 struct SessionCtx {
     sessions: Arc<SessionManager>,
+    tv_border: Arc<TvBorder>,
     conn_id: u64,
     slot: usize,
     role: Role,
@@ -173,6 +181,7 @@ async fn run_session(socket: &mut WebSocket, ctx: SessionCtx, mut replaced: toki
         if tracker.is_none() {
             match crate::tracking::spawn(
                 ctx.sessions.clone(),
+                ctx.tv_border.clone(),
                 ctx.conn_id,
                 ctx.slot,
                 status_tx.clone(),

@@ -18,6 +18,7 @@ import {
   WIIMOTE_BUTTONS,
   type Role,
   type ServerMessage,
+  type TrackingMessage,
   type Vec2,
 } from './types';
 
@@ -292,13 +293,16 @@ export function parseServerMessage(text: string): ServerMessage | null {
         Number.isInteger(msg.tags) &&
         isFiniteNumber(msg.fixes_per_s)
       ) {
-        return {
+        const tracking: TrackingMessage = {
           type: 'tracking',
           state: msg.state,
           pointer,
           tags: msg.tags as number,
           fixes_per_s: msg.fixes_per_s,
         };
+        // Unknown places (a newer PC) are left out, which phones read as the /tracking page.
+        if (msg.border === 'game' || msg.border === 'page') tracking.border = msg.border;
+        return tracking;
       }
       return null;
     }

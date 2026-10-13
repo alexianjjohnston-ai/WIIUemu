@@ -32,6 +32,9 @@ feedback arrives early.
 
 ### 1.2 Marker border during real play (M) — new, needed for camera pointing
 
+**Status (2026-10-13):** option A built for Windows ([ADR-0004](adr/0004-tv-border-during-play.md), PR #29). It is
+untested with real Cemu on a TV. macOS and Linux still use the `/tracking` page.
+
 **Problem:** camera pointing needs the AprilTag border around the game picture, and today that border only
 exists on the `/tracking` browser page. During real play, the TV shows Cemu, so the phones see no markers and
 the pointer is lost. TESTING.md's workaround is to put Cemu's window by hand over the middle of that page.

@@ -6,11 +6,12 @@
 //! never dropped unless the channel is full.
 
 use crate::session::{SessionManager, TrackingDiag};
+use crate::tv_border::TvBorder;
 use std::collections::VecDeque;
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use wiiu_controller::protocol::{CalibrationFailure, GyroSample, PointerXy, ServerMessage, TrackingState};
+use wiiu_controller::protocol::{BorderKind, CalibrationFailure, GyroSample, PointerXy, ServerMessage, TrackingState};
 use wiiu_tracking::detect::{decode_jpeg_gray, TagDetector};
 use wiiu_tracking::filter::{OneEuro2, OneEuroConfig};
 use wiiu_tracking::pipeline::{DeviceGyro, Tracker};
@@ -70,6 +71,7 @@ impl TrackingHandle {
 
 pub fn spawn(
     sessions: Arc<SessionManager>,
+    tv_border: Arc<TvBorder>,
     conn_id: u64,
     slot: usize,
     status: StatusSender,
@@ -78,12 +80,14 @@ pub fn spawn(
     let (tx, rx) = sync_channel(CHANNEL_CAPACITY);
     std::thread::Builder::new()
         .name(format!("tracking-slot{slot}"))
-        .spawn(move || Worker::new(sessions, conn_id, slot, status, events).run(rx))?;
+        .spawn(move || Worker::new(sessions, tv_border, conn_id, slot, status, events).run(rx))?;
     Ok(TrackingHandle { tx })
 }
 
 struct Worker {
     sessions: Arc<SessionManager>,
+    /// Tells the phone where the tags are (around the game or on the /tracking page).
+    tv_border: Arc<TvBorder>,
     conn_id: u64,
     slot: usize,
     status: StatusSender,
@@ -109,6 +113,7 @@ struct Worker {
 impl Worker {
     fn new(
         sessions: Arc<SessionManager>,
+        tv_border: Arc<TvBorder>,
         conn_id: u64,
         slot: usize,
         status: StatusSender,
@@ -127,6 +132,7 @@ impl Worker {
         };
         Self {
             sessions,
+            tv_border,
             conn_id,
             slot,
             status,
@@ -330,6 +336,11 @@ impl Worker {
                 pointer: pointer.map(|(x, y)| PointerXy { x, y }),
                 tags: self.tracker.last_tag_count() as u32,
                 fixes_per_s: self.fixes.len() as f32,
+                border: Some(if self.tv_border.is_on() {
+                    BorderKind::Game
+                } else {
+                    BorderKind::Page
+                }),
             }));
             let m = self.tracker.gyro_map();
             self.sessions.set_tracking_diag(

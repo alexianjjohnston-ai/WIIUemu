@@ -33,7 +33,8 @@ pub struct BorderConfig {
     /// Tag edge length as a fraction of the game image height. Default 0.20: with a phone held upright 1–2.5 m
     /// from a monitor, smaller tags are only a few camera pixels wide (see `tests/realistic.rs`).
     pub tag_size: f64,
-    /// Gap between game image and tags, as a fraction of the game image height.
+    /// Gap between game image and tags, as a fraction of the game image height. At least `tag_size / 8`, so each
+    /// tag's 1-cell white quiet zone stays outside the game picture (default 0.03 with 0.20 tags).
     pub gap: f64,
     /// Tags along the top and bottom edges (including corners), ≥ 2.
     pub per_horizontal_edge: usize,
@@ -48,7 +49,7 @@ impl Default for BorderConfig {
         Self {
             aspect: 16.0 / 9.0,
             tag_size: 0.20,
-            gap: 0.01,
+            gap: 0.03,
             per_horizontal_edge: 4,
             per_vertical_edge: 3,
             first_id: 0,
@@ -129,6 +130,19 @@ mod tests {
             let ys_in = m.corners.iter().any(|c| c[1] > 0.0 && c[1] < 1.0);
             assert!(!(xs_in && ys_in), "marker {} intrudes into the game", m.id);
         }
+    }
+
+    #[test]
+    fn quiet_zones_stay_outside_the_game() {
+        // Each tag is drawn with a 1-cell white quiet zone (cell = tag edge / 8) around its black border; the game
+        // picture must not cover it, or the edge facing the game loses its contrast.
+        let cfg = BorderConfig::default();
+        assert!(
+            cfg.gap >= cfg.tag_size / 8.0,
+            "gap {} < quiet zone {}",
+            cfg.gap,
+            cfg.tag_size / 8.0
+        );
     }
 
     #[test]
