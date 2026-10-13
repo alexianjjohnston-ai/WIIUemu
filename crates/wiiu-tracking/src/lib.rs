@@ -12,9 +12,11 @@ pub mod homography;
 pub mod linalg;
 pub mod markers;
 pub mod pipeline;
+pub mod screen;
 pub mod tag36h11;
 pub mod tags;
 
 pub use aim::{calibrate_aim_point, estimate_aim, AimConfig, AimError, AimEstimate, TagObservation};
 pub use fusion::{FusionConfig, PointerFusion, PointerState};
 pub use markers::{BorderConfig, Marker, MarkerLayout};
+pub use screen::{screen_layout, PixelRect, ScreenLayout};
