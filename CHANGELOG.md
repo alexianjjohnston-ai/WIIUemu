@@ -17,7 +17,8 @@ All notable changes to this project are documented here. The format follows
 - The phone pairing QR code is now on the setup page itself.
 - **The Windows release exe includes the official Cemu release** (unmodified, MPL-2.0; license and source link are
   written to `CEMU-LICENSE.txt` next to it). The first start needs no internet; **Update Cemu** still downloads the
-  newest release. The release workflow fetches the latest Cemu at build time and checks GitHub's SHA-256 digest.
+  newest release. The release workflow fetches the latest Cemu at build time from Cemu's GitHub releases, checks its
+  URL and size (and GitHub's SHA-256 digest when one is published; Cemu v2.6 has none) and logs its SHA-256.
 - **Release packaging:**
   - The Windows download is one self-contained `WiiUConnect-<version>-windows-x64.exe` with the C runtime linked
     statically, an app icon, version information and an `asInvoker` manifest.

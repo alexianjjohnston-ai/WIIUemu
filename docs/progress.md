@@ -5,7 +5,7 @@ Hand-off notes for the next session. Newest first.
 ## 2026-10-13: One-file release that sets itself up (branch `feat/release-packaging`, PR #21)
 
 - **The release exe is self-contained.** It has the phone app embedded, a static C runtime, an icon and version
-  info, and the official Cemu release built in (Windows; fetched at release build time, SHA-256 checked, MPL-2.0
+  info, and the official Cemu release built in (Windows; fetched at release build time; URL and size checked, GitHub's SHA-256 digest too when published (none for v2.6); MPL-2.0
   notice written as `CEMU-LICENSE.txt`).
 - **Automatic setup on start.** It uses or installs Cemu (built-in first, then download), assigns controllers, turns
   on Cemu's GamePad window (`open_pad`) and finds game folders. The setup page shows a live checklist and the

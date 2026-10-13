@@ -14,7 +14,8 @@ fails if:
 - the exe depends on the Visual C++ runtime DLLs;
 - the exe, started alone in an empty folder, does not serve the phone app over HTTP and HTTPS or reports the wrong
   version;
-- the latest official Cemu can't be fetched, fails GitHub's SHA-256 digest, or its license is no longer MPL-2.0
+- the latest official Cemu can't be fetched, has an unexpected URL or size, fails GitHub's SHA-256 digest (checked
+  only when GitHub publishes one; it doesn't for Cemu v2.6), or its license is no longer MPL-2.0
   (the Windows exe includes it);
 - on a Windows runner, the automatic setup does not install the built-in Cemu and configure it, or updating Cemu
   by download then fails (tags and `test/**` branches);
