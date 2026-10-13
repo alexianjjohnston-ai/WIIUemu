@@ -42,6 +42,7 @@ export class ControllerSession {
     this.connection = new Connection(options, {
       onReady: () => {
         this.engine.attach((msg) => this.connection.send(msg));
+        this.camera.onConnectionUp();
       },
       onDown: () => {
         // Socket already gone: stop sending, then drop everything that was held.
@@ -52,11 +53,15 @@ export class ControllerSession {
       onTracking: (msg) => {
         this.camera.onTracking(msg);
       },
+      onCalibration: (msg) => {
+        this.camera.onCalibration(msg);
+      },
     });
     const connection = this.connection;
     this.camera = new CameraPointer({
       sink: connection,
       sendGyro: (msg) => connection.send(msg),
+      sendControl: (msg) => connection.send(msg),
       ...(config.createCamera ? { createCamera: config.createCamera } : {}),
     });
     this.motion = new MotionSensor('face', {

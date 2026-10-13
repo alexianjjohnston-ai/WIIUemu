@@ -20,7 +20,7 @@ A feature counts as done only after it has been verified on real hardware and re
 | 3 | Phone motion → DSU for the GamePad and Wii Remotes (engine-aware axes, Cemu's convention) | built; **axis directions unverified in Cemu** |
 | 4 | Setup assigns Controller 1 to the phone GamePad (DSU slot 0) | built |
 | 5 | **GamePad screen streaming** (below) | not started |
-| 6 | Pointer calibration (aim at the centre ring, press A) | not started |
+| 6 | Pointer calibration (tap Calibrate, aim at the centre cross during a 3 s countdown; stored on the phone) | built (`feat/pointer-calibration`); end-to-end test with rendered camera frames; **unverified on real phones** |
 | 7 | Hardware verification pass (checklist below) | owner |
 | 8 | Versioning, release notes, tag `v1.0.0` → GitHub Release (Windows zip, macOS zip) | not started |
 

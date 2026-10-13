@@ -119,3 +119,77 @@ test('settings change layout and button size', async ({ page }) => {
   expect(bComfort).toBeGreaterThan(bAuthentic);
   expect(aBig).toBeGreaterThan(aSmall);
 });
+
+/** Boxes of the camera overlays (status line and calibration row), which float above the remote. */
+async function overlayBoxes(page: Page) {
+  const out = [];
+  for (const id of ['camera-status', 'calibration']) {
+    const box = await page.getByTestId(id).boundingBox();
+    if (box) out.push({ id, ...box });
+  }
+  return out;
+}
+
+for (const viewport of [
+  { width: 360, height: 740 },
+  { width: 390, height: 844 },
+]) {
+  for (const [layout, leftHanded] of [
+    ['authentic', false],
+    ['comfort', false],
+    ['authentic', true],
+  ] as const) {
+    const hand = leftHanded ? ', left-handed' : '';
+    test(`camera overlays never cover a control (${layout}${hand}, ${viewport.width}x${viewport.height})`, async ({
+      page,
+      server,
+    }) => {
+      await page.setViewportSize(viewport);
+      await presetSettings(page, { layout, leftHanded, scale: 1 });
+      await connectAsWiimote(page);
+      await page.getByTestId('camera-toggle').click();
+      await expect(page.getByTestId('camera-status')).toHaveAttribute('data-kind', 'waiting');
+      const states: [string, () => void | Promise<void>][] = [
+        [
+          'offered',
+          () => {
+            server.sendTracking({ state: 'tracking', pointer: null, tags: 9, fixes_per_s: 29 });
+          },
+        ],
+        ['countdown', () => page.getByTestId('calibrate').click()],
+        [
+          'failed',
+          () => {
+            server.sendCalibration({ ok: false, point: null, reason: 'no_markers' });
+          },
+        ],
+        [
+          'saved',
+          async () => {
+            await page.getByTestId('calibrate').click();
+            await expect.poll(() => server.calibrateRequests.length, { timeout: 5000 }).toBe(2);
+            server.sendCalibration({ ok: true, point: { x: 0.5, y: 0.5 }, reason: null });
+            await expect(page.getByTestId('calibration-reset')).toBeVisible({ timeout: 5000 });
+          },
+        ],
+      ];
+      for (const [name, enter] of states) {
+        await enter();
+        await expect(page.getByTestId('calibration')).toBeVisible();
+        for (const o of await overlayBoxes(page)) {
+          // The player LEDs only display the player number (also shown in the status bar): not a control.
+          for (const id of CONTROLS.filter((c) => c !== 'player-leds')) {
+            const c = await page.getByTestId(id).boundingBox();
+            if (!c) continue;
+            const overlap =
+              o.x < c.x + c.width - 0.5 &&
+              c.x < o.x + o.width - 0.5 &&
+              o.y < c.y + c.height - 0.5 &&
+              c.y < o.y + o.height - 0.5;
+            expect(overlap, `${name}: ${o.id} covers ${id}`).toBe(false);
+          }
+        }
+      }
+    });
+  }
+}

@@ -2,6 +2,24 @@
 
 Hand-off notes for the next session. Newest first.
 
+## 2026-10-13: Pointer calibration (branch `feat/pointer-calibration`, PR #22)
+
+- **Protocol** (protocol 2, docs first): `calibrate` (phone → PC), `aim` with a stored point or `null`, and the
+  `calibration` result with `no_markers` / `off_image` reasons.
+- **Server:** the tracking worker takes the next fix after `calibrate` (3 s limit) and calls
+  `calibrate_aim_point` for the game centre. It keeps the aim point as an image fraction, so it survives
+  frame-size changes, and answers on a separate channel so the 10 Hz status can't overwrite the result.
+- **Phone:** `CameraPointer` runs a 3 s countdown, then measures. It stores the point in `localStorage` and
+  re-sends it when the camera starts and after every reconnect. A compact one-line row offers Calibrate,
+  Recalibrate and Reset only while the PC sees the border.
+- **Layout fix found by the new overlay test:** in left-handed mode the camera line covered the B button (an older
+  bug). Camera lines are now right-aligned there.
+- **Tests:** server e2e renders the border off-centre; calibration reports (0.6, 0.45) and the pointer then lands
+  on the TV centre, also after a reconnect with `aim`. Other tests cover timeout, validation, phone unit tests
+  with fake timers, a Playwright flow, and an overlay check in 6 layouts × 2 phones.
+- **Unverified:** real phones (does one centre calibration fix the offset across the whole screen?).
+- **Next:** GamePad screen streaming (work package 5, ADR-0002).
+
 ## 2026-10-13: One-file release that sets itself up (branch `feat/release-packaging`, PR #21)
 
 - **The release exe is self-contained.** It has the phone app embedded, a static C runtime, an icon and version
@@ -19,7 +37,6 @@ Hand-off notes for the next session. Newest first.
 - **Unverified:** the owner's PC (SmartScreen, firewall prompt, game discovery on real folders).
 - **Merged** after #20: the automatic setup now assigns all four controllers (`assign_controllers`), including the
   phone GamePad on Controller 1.
-- **Next:** pointer calibration (#22); GamePad screen streaming.
 
 ## 2026-10-12/13: Release 1.0 started (branch `feat/gamepad-controller`)
 

@@ -106,6 +106,12 @@ export function WiimoteScreen({ config, onLeave }: Props) {
             onDismissError={() => {
               session.camera.disable();
             }}
+            onCalibrate={() => {
+              session.camera.calibrate();
+            }}
+            onResetCalibration={() => {
+              session.camera.resetCalibration();
+            }}
           />
         )}
         {motionNotice(motion) && (

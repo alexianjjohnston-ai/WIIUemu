@@ -204,6 +204,48 @@ manual or touch fallback).
 
 `state` is `tracking`, `gyro_only` or `lost`. Phones use it for on-screen feedback ("point at the TV").
 
+### Pointer calibration
+
+A phone's camera does not look exactly along the direction the player points. Calibration measures the
+**aim point**: the spot in the camera image that the player's pointing direction goes through. It is stored as
+a fraction of the image (`x`, `y` ∈ [0,1], (0,0) top-left of the portrait image the phone sends). Without
+calibration the aim point is the image centre (0.5, 0.5). The phone stores its own aim point (it belongs to that
+phone's camera) and sends it again on every connection. Only the `wiimote` role on protocol 2 may send these;
+others are rejected like `gyro`.
+
+`calibrate` (text, client → server): the player is aiming at the centre of the TV image now (the cross on the
+`/tracking` page).
+
+```json
+{ "type": "calibrate" }
+```
+
+The server takes the next camera fix (within 3 s), computes the image point that maps to the centre of the game
+image (`wiiu_tracking::calibrate_aim_point`), applies it at once and answers with `calibration`. A new
+`calibrate` replaces a pending one.
+
+`aim` (text, client → server): apply a stored aim point, or go back to the image centre with `null`.
+
+```json
+{ "type": "aim", "point": { "x": 0.52, "y": 0.44 } }
+{ "type": "aim", "point": null }
+```
+
+`x` and `y` must be finite and within [0,1]; anything else is rejected (the connection closes). The server
+does not answer `aim`.
+
+`calibration` (text, server → client): the result of `calibrate`.
+
+```json
+{ "type": "calibration", "ok": true, "point": { "x": 0.52, "y": 0.44 }, "reason": null }
+{ "type": "calibration", "ok": false, "point": null, "reason": "no_markers" }
+```
+
+On success `point` is the new aim point, which the phone stores and sends as `aim` from then on. `reason` on
+failure is `no_markers` (no camera fix within 3 s: the border was not in view) or `off_image` (the computed
+point lies outside the camera image: the player was not aiming at the centre). A failure leaves the previous aim
+point in place.
+
 ## DSU layer (PC → Cemu)
 
 Wii U Connect implements the Cemuhook protocol v1001 as a UDP server, on `127.0.0.1:26760` by default.

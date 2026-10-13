@@ -4,6 +4,7 @@
 import {
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
+  type CalibrationMessage,
   type ClientMessage,
   type HelloMessage,
   type TrackingMessage,
@@ -65,6 +66,8 @@ export interface ConnectionEvents {
   onDown?: () => void;
   /** Protocol 2 camera-tracking feedback from the PC. */
   onTracking?: (msg: TrackingMessage) => void;
+  /** Protocol 2: result of a `calibrate` request. */
+  onCalibration?: (msg: CalibrationMessage) => void;
 }
 
 export class Connection {
@@ -139,7 +142,8 @@ export class Connection {
     const ws = this.socket;
     if (!ws || ws.readyState !== OPEN) return false;
     if (msg.type === 'input' && ws.bufferedAmount > MAX_BUFFERED_BYTES) return false;
-    if (msg.type === 'gyro' && !this.supportsTracking) return false;
+    // Protocol 2 only: a protocol 1 PC rejects these and closes the connection.
+    if ((msg.type === 'gyro' || msg.type === 'calibrate' || msg.type === 'aim') && !this.supportsTracking) return false;
     try {
       ws.send(JSON.stringify(msg));
       return true;
@@ -258,6 +262,9 @@ export class Connection {
         return;
       case 'tracking':
         if (this.ready) this.events.onTracking?.(msg);
+        return;
+      case 'calibration':
+        if (this.ready) this.events.onCalibration?.(msg);
         return;
     }
   }

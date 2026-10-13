@@ -2,7 +2,15 @@
 
 import { test as base, expect, type CDPSession, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
 import { validateCameraFrame, validateClientFrame, validateGyro } from '../src/protocol/validate';
-import type { GyroMessage, HelloMessage, InputMessage, Role, TrackingMessage } from '../src/protocol/types';
+import type {
+  AimMessage,
+  CalibrationMessage,
+  GyroMessage,
+  HelloMessage,
+  InputMessage,
+  Role,
+  TrackingMessage,
+} from '../src/protocol/types';
 
 export interface WelcomeOptions {
   slot: number;
@@ -20,6 +28,9 @@ export class MockServer {
   hellos: (HelloMessage & Received)[] = [];
   inputs: (InputMessage & Received)[] = [];
   gyro: (GyroMessage & Received)[] = [];
+  /** `calibrate` requests and `aim` messages (protocol 2). */
+  calibrateRequests: Received[] = [];
+  aims: (AimMessage & Received)[] = [];
   /** Binary camera frames (protocol 2), header fields decoded. */
   frames: { width: number; height: number; seq: number; bytes: number; jpegMagic: boolean; conn: number }[] = [];
   violations: string[] = [];
@@ -78,6 +89,12 @@ export class MockServer {
           case 'ping':
             ws.send(JSON.stringify({ type: 'pong', id: msg.id }));
             break;
+          case 'calibrate':
+            this.calibrateRequests.push(meta);
+            break;
+          case 'aim':
+            this.aims.push({ ...(msg as AimMessage), ...meta });
+            break;
           case 'gyro': {
             const gyro = msg as GyroMessage;
             if (this.protocol < 2) this.violations.push('gyro on a protocol 1 connection');
@@ -97,6 +114,10 @@ export class MockServer {
 
   sendTracking(msg: Omit<TrackingMessage, 'type'>): void {
     this.current?.send(JSON.stringify({ type: 'tracking', ...msg }));
+  }
+
+  sendCalibration(msg: Omit<CalibrationMessage, 'type'>): void {
+    this.current?.send(JSON.stringify({ type: 'calibration', ...msg }));
   }
 
   sendError(code: string, message: string): void {
