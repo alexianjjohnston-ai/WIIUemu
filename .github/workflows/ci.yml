@@ -72,7 +72,7 @@ jobs:
         working-directory: .
         run: |
           if [ -f apps/phone/package-lock.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; echo "apps/phone not present on this branch; skipping"; fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.app.outputs.present == 'true'
         with:
           node-version: 22
