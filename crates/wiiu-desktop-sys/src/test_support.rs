@@ -6,8 +6,9 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateMenu, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMenu, GetMessageW,
-    GetWindowLongPtrW, GetWindowRect, PostMessageW, PostQuitMessage, RegisterClassW, ShowWindow, TranslateMessage,
-    GWL_STYLE, MF_STRING, MSG, SW_SHOWNOACTIVATE, WM_CLOSE, WM_DESTROY, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+    GetWindowLongPtrW, GetWindowRect, IsIconic, PostMessageW, PostQuitMessage, RegisterClassW, SetMenu, ShowWindow,
+    TranslateMessage, GWL_STYLE, MF_STRING, MSG, SW_MINIMIZE, SW_SHOWNOACTIVATE, WM_CLOSE, WM_DESTROY, WNDCLASSW,
+    WS_OVERLAPPEDWINDOW,
 };
 
 fn wide(s: &str) -> Vec<u16> {
@@ -123,4 +124,26 @@ pub fn window_rect(handle: u64) -> [i32; 4] {
     // SAFETY: local out-parameter.
     unsafe { GetWindowRect(handle as usize as HWND, &mut r) };
     [r.left, r.top, r.right, r.bottom]
+}
+
+/// Gives the window a new menu bar, as Cemu does when it rebuilds its menu. Returns the new menu handle.
+pub fn attach_new_menu(handle: u64) -> u64 {
+    let item = wide("&Options");
+    // SAFETY: a fresh menu attached to our own window; the buffer outlives the call.
+    unsafe {
+        let menu = CreateMenu();
+        AppendMenuW(menu, MF_STRING, 2, item.as_ptr());
+        SetMenu(handle as usize as HWND, menu);
+        menu as usize as u64
+    }
+}
+
+pub fn minimize(handle: u64) {
+    // SAFETY: plain call on our own window.
+    unsafe { ShowWindow(handle as usize as HWND, SW_MINIMIZE) };
+}
+
+pub fn is_minimized(handle: u64) -> bool {
+    // SAFETY: plain query.
+    unsafe { IsIconic(handle as usize as HWND) != 0 }
 }

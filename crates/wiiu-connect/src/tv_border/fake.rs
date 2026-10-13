@@ -18,6 +18,12 @@ pub struct Fake {
     pub restored: Vec<SavedWindow>,
     pub border: Option<([i32; 4], usize)>,
     pub borders_shown: usize,
+    /// Client rects passed to `keep`.
+    pub kept: Vec<[i32; 4]>,
+    /// Cemu's current menu (0: none, as after the border detached it).
+    pub menu_now: u64,
+    pub monitor_now: [i32; 4],
+    pub restore_ok: bool,
 }
 
 pub fn saved_state() -> SavedWindow {
@@ -52,6 +58,8 @@ impl Fake {
             ],
             record,
             record_before_place: true,
+            monitor_now: MONITOR,
+            restore_ok: true,
             ..Self::default()
         }
     }
@@ -68,7 +76,10 @@ impl Desktop for Fake {
         self.windows.iter().find(|w| w.handle == handle).map(|w| w.pid)
     }
     fn monitor(&self, handle: u64) -> Option<[i32; 4]> {
-        self.owner(handle).map(|_| MONITOR)
+        self.owner(handle).map(|_| self.monitor_now)
+    }
+    fn menu(&self, _handle: u64) -> u64 {
+        self.menu_now
     }
     fn save(&self, handle: u64) -> Option<SavedWindow> {
         (handle == CEMU && self.owner(handle).is_some()).then(saved_state)
@@ -78,9 +89,13 @@ impl Desktop for Fake {
         self.placed.push(client);
         true
     }
+    fn keep(&mut self, _handle: u64, client: [i32; 4]) -> bool {
+        self.kept.push(client);
+        true
+    }
     fn restore(&mut self, saved: &SavedWindow) -> bool {
         self.restored.push(saved.clone());
-        true
+        self.restore_ok
     }
     fn show_border(&mut self, monitor: [i32; 4], white: Vec<[i32; 4]>) -> bool {
         self.border = Some((monitor, white.len()));

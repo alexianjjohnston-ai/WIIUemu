@@ -252,11 +252,39 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         wiiu_connect::setup::open_browser(&format!("{local}/setup"));
     }
 
-    tokio::signal::ctrl_c().await.context("waiting for Ctrl+C")?;
+    stop_signal().await.context("waiting for Ctrl+C")?;
     tracing::info!("shutting down");
     let _ = stop_tx.send(true);
     let _ = tokio::time::timeout(Duration::from_secs(3), task).await;
     Ok(())
+}
+
+/// Waits for Ctrl+C or, on Windows, for the console window closing, Ctrl+Break, log-off or shut-down. Windows
+/// ends the process about 5 s after a close; that is enough to put Cemu's window back (the TV border) and stop.
+#[cfg(windows)]
+async fn stop_signal() -> std::io::Result<()> {
+    use tokio::signal::windows;
+    let mut close = windows::ctrl_close()?;
+    let mut brk = windows::ctrl_break()?;
+    let mut logoff = windows::ctrl_logoff()?;
+    let mut shutdown = windows::ctrl_shutdown()?;
+    tokio::select! {
+        r = tokio::signal::ctrl_c() => r,
+        _ = close.recv() => Ok(()),
+        _ = brk.recv() => Ok(()),
+        _ = logoff.recv() => Ok(()),
+        _ = shutdown.recv() => Ok(()),
+    }
+}
+
+/// Waits for Ctrl+C or a termination request (SIGTERM, e.g. quitting the app on macOS).
+#[cfg(unix)]
+async fn stop_signal() -> std::io::Result<()> {
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    tokio::select! {
+        r = tokio::signal::ctrl_c() => r,
+        _ = term.recv() => Ok(()),
+    }
 }
 
 fn cemu_profile(args: ProfileArgs) -> anyhow::Result<()> {
