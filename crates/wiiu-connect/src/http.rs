@@ -20,6 +20,8 @@ pub struct AppState {
     pub config: Arc<HttpConfig>,
     /// The PC-side setup assistant (`/setup`); `None` disables it.
     pub setup: Option<Arc<crate::setup::Setup>>,
+    /// The TV border during play (ADR-0004).
+    pub tv_border: Arc<crate::tv_border::TvBorder>,
 }
 
 pub struct HttpConfig {

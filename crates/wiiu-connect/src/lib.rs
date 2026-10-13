@@ -136,16 +136,33 @@ pub async fn start(
         embedded_web: config.embedded_web,
     };
     let phone_url = http_config.phone_url(&token);
+    let setup = config.setup.clone().map(|cfg| {
+        let setup = setup::Setup::new(cfg, dsu_addr);
+        if setup.auto_enabled() {
+            setup.start_auto_setup();
+        }
+        setup
+    });
+    // The TV border needs a data folder for its recovery record (ADR-0004).
+    let data_dir = config
+        .setup
+        .as_ref()
+        .map(|s| s.data_dir.clone())
+        .or_else(|| config.https.as_ref().map(|h| h.data_dir.clone()));
+    let tv_border = tv_border::TvBorder::new(tv_border::TvBorderMode::default(), tv_border::TvStatus::Off);
+    let tv_thread = data_dir.and_then(|dir| {
+        tv_border::spawn(
+            tv_border.clone(),
+            sessions.clone(),
+            dir.join(tv_border::recovery::RECORD_FILE),
+            shutdown.clone(),
+        )
+    });
     let app = http::router(http::AppState {
         sessions: sessions.clone(),
         config: Arc::new(http_config),
-        setup: config.setup.clone().map(|cfg| {
-            let setup = setup::Setup::new(cfg, dsu_addr);
-            if setup.auto_enabled() {
-                setup.start_auto_setup();
-            }
-            setup
-        }),
+        setup,
+        tv_border,
     });
     let https_app = app.clone();
 
@@ -203,6 +220,10 @@ pub async fn start(
         let _ = tokio::join!(dsu_task, watchdog_task, http_task);
         if let Some(t) = https_task {
             let _ = t.await;
+        }
+        // Cemu's window is restored before the server counts as stopped.
+        if let Some(t) = tv_thread {
+            let _ = tokio::task::spawn_blocking(move || t.join()).await;
         }
     });
 
