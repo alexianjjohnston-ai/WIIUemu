@@ -10,6 +10,7 @@ pub mod setup;
 mod setup_http;
 pub mod tls;
 pub mod tracking;
+pub mod tv_border;
 pub mod ws;
 
 use anyhow::Context;

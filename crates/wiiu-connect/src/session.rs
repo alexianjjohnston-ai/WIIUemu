@@ -68,6 +68,9 @@ pub struct TrackingDiag {
 /// (docs/controller-protocol.md, "Pointer ownership").
 pub const TRACKED_POINTER_TTL: Duration = Duration::from_secs(2);
 
+/// A slot counts as "camera on" this long after its last accepted camera frame (TV border, ADR-0004).
+pub const CAMERA_ACTIVE_WINDOW: Duration = Duration::from_millis(1500);
+
 impl SlotSession {
     fn effective_input(&self, now: Instant) -> ControllerInput {
         let mut input = self.input;
@@ -330,6 +333,19 @@ impl SessionManager {
         neutralised
     }
 
+    /// Connected Wii Remotes whose camera sent a frame within [`CAMERA_ACTIVE_WINDOW`].
+    pub fn cameras_active(&self, now: Instant) -> usize {
+        self.lock()
+            .slots
+            .iter()
+            .filter(|s| s.owner.is_some())
+            .filter(|s| {
+                s.camera_frame_at
+                    .is_some_and(|t| now.saturating_duration_since(t) < CAMERA_ACTIVE_WINDOW)
+            })
+            .count()
+    }
+
     pub fn status(&self) -> Vec<SlotStatus> {
         let inner = self.lock();
         inner
@@ -535,6 +551,27 @@ mod tests {
         m.apply_input(a.conn_id, a.slot, &input(1, &["A"], None), now).unwrap();
         assert!(m.apply_input(a.conn_id, a.slot, &input(2, &["ZR"], None), now).is_err());
         assert_eq!(table.pad(1).unwrap().buttons, dsu::CROSS);
+    }
+
+    #[test]
+    fn cameras_active_counts_recent_frames_of_connected_slots() {
+        let (m, _table) = manager();
+        let t0 = Instant::now();
+        assert_eq!(m.cameras_active(t0), 0);
+        let a = m.authenticate(&hello(Role::Wiimote, "device-aaaa"), t0).unwrap();
+        let b = m.authenticate(&hello(Role::Wiimote, "device-bbbb"), t0).unwrap();
+        assert_eq!(m.cameras_active(t0), 0, "connected without a camera");
+        m.note_camera_frame(a.conn_id, a.slot, t0);
+        m.note_camera_frame(b.conn_id, b.slot, t0);
+        assert_eq!(m.cameras_active(t0 + Duration::from_millis(1400)), 2);
+        assert_eq!(m.cameras_active(t0 + CAMERA_ACTIVE_WINDOW), 0, "frames stopped");
+        m.note_camera_frame(a.conn_id, a.slot, t0 + Duration::from_secs(2));
+        m.disconnect(b.conn_id, b.slot);
+        assert_eq!(
+            m.cameras_active(t0 + Duration::from_secs(2)),
+            1,
+            "a disconnected phone doesn't count"
+        );
     }
 
     #[test]
