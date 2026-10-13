@@ -11,7 +11,6 @@ import {
 function recorder() {
   const calls: (number | number[])[] = [];
   const backend: HapticBackend = {
-    kind: 'vibrate',
     pulse: (pattern) => {
       calls.push(pattern);
     },
@@ -45,7 +44,6 @@ describe('haptics', () => {
 
   it('swallows backend errors', () => {
     const backend: HapticBackend = {
-      kind: 'vibrate',
       pulse: () => {
         throw new Error('blocked');
       },

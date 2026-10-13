@@ -64,5 +64,5 @@ Record each result in [compatibility.md](compatibility.md):
    twist).
 6. **Four phones at once:** one GamePad and three Wii Remotes, with no slot mix-ups.
 7. **Safety:** lock a phone mid-press. All of its input is released in Cemu within 1 s.
-8. **Vibration:** presses, a stick at its rim and connecting buzz on Android and on an iPhone with iOS 18+;
-   Off stops it, Strong is stronger (Android).
+8. **Vibration (Android):** presses, a stick at its rim and connecting buzz; Off stops it, Strong is stronger.
+   On an iPhone the setting says the browser can't vibrate.

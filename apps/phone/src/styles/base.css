@@ -164,7 +164,8 @@ button {
 }
 
 .field > label,
-.field > legend {
+.field > legend,
+.field > .field-label {
   font-weight: 600;
   font-size: 0.9rem;
   padding: 0;

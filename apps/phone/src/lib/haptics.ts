@@ -1,6 +1,6 @@
-// Haptic feedback. Android browsers have the Vibration API. iOS Safari has none, but from iOS 18 it plays a
-// system haptic when a `<input type="checkbox" switch>` toggles, also when the toggle comes from script, so the
-// iOS backend clicks a hidden switch. That trick is unverified on a real iPhone (docs/compatibility.md).
+// Haptic feedback through the Vibration API (Android browsers). iOS Safari has no Vibration API, and since WebKit
+// 313638@main (May 2026) a page can't trigger the system haptic of a `<input type="checkbox" switch>` with a scripted
+// click either, so iPhones get no haptics from a web page (docs/research.md, haptics).
 
 import type { ConnectionState } from '../net/connection';
 import type { CalibrationStatus } from '../tracking/CameraPointer';
@@ -23,7 +23,7 @@ export type HapticEvent =
   /** Pointer calibration failed. */
   | 'failed';
 
-/** Vibration API patterns (ms on, off, on, …). The iOS backend plays one tick per "on" part. */
+/** Vibration API patterns (ms on, off, on, …). */
 export const PATTERNS: Record<HapticEvent, { light: number | number[]; strong: number | number[] }> = {
   press: { light: 8, strong: 18 },
   dpad: { light: 8, strong: 18 },
@@ -35,7 +35,6 @@ export const PATTERNS: Record<HapticEvent, { light: number | number[]; strong: n
 };
 
 export interface HapticBackend {
-  readonly kind: 'vibrate' | 'ios-switch';
   pulse(pattern: number | number[]): void;
 }
 
@@ -76,43 +75,14 @@ export function calibrationHapticEvent(prev: CalibrationStatus, next: Calibratio
 
 function vibrateBackend(): HapticBackend | null {
   if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return null;
-  return { kind: 'vibrate', pulse: (pattern) => navigator.vibrate(pattern) };
+  return { pulse: (pattern) => navigator.vibrate(pattern) };
 }
 
-function iosSwitchBackend(): HapticBackend | null {
-  if (typeof document === 'undefined') return null;
-  const input = document.createElement('input');
-  // Safari 17.4+ knows the `switch` attribute; other browsers have no such property.
-  if (!('switch' in input)) return null;
-  input.type = 'checkbox';
-  input.setAttribute('switch', '');
-  input.tabIndex = -1;
-  const label = document.createElement('label');
-  label.setAttribute('aria-hidden', 'true');
-  label.style.display = 'none';
-  label.appendChild(input);
-  let attached = false;
-  const tick = () => {
-    if (!attached) {
-      document.body.appendChild(label);
-      attached = true;
-    }
-    label.click();
-  };
-  return {
-    kind: 'ios-switch',
-    pulse(pattern) {
-      const parts = Array.isArray(pattern) ? pattern : [pattern];
-      let at = 0;
-      parts.forEach((ms, i) => {
-        if (i % 2 === 0) {
-          if (at === 0) tick();
-          else setTimeout(tick, at);
-        }
-        at += ms;
-      });
-    },
-  };
+const backend = vibrateBackend();
+
+/** False on iPhones: their browsers can't vibrate. */
+export function hapticsSupported(): boolean {
+  return backend !== null;
 }
 
 let strength: HapticStrength = 'light';
@@ -122,7 +92,7 @@ export function setHapticStrength(s: HapticStrength): void {
   strength = s;
 }
 
-const haptics = createHaptics(vibrateBackend() ?? iosSwitchBackend(), () => strength);
+const haptics = createHaptics(backend, () => strength);
 
 export function haptic(event: HapticEvent): void {
   haptics.fire(event);

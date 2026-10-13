@@ -4,7 +4,6 @@ import { connectAsGamepad, connectAsWiimote, expect, test } from './fixtures';
 declare global {
   interface Window {
     __buzz: (number | number[])[];
-    __ticks: number;
   }
 }
 
@@ -61,28 +60,16 @@ test.describe('haptics', () => {
     await expect.poll(() => buzzes(page)).toContainEqual([60, 60, 60, 60, 60]);
   });
 
-  test('iPhone without the Vibration API: clicks a hidden switch, one tick per pulse', async ({ page, touch }) => {
+  test('a phone without the Vibration API (iPhone) says so instead of offering the setting', async ({ page }) => {
     await page.addInitScript(() => {
-      window.__ticks = 0;
       Object.defineProperty(navigator, 'vibrate', { configurable: true, value: undefined });
-      // Safari 17.4+ has the `switch` attribute on checkboxes; Chromium doesn't, so pretend.
-      Object.defineProperty(HTMLInputElement.prototype, 'switch', { configurable: true, value: false });
-      const proto = HTMLLabelElement.prototype;
-      const click = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'click')?.value as (this: HTMLElement) => void;
-      proto.click = function (this: HTMLLabelElement) {
-        if (this.querySelector('input[switch]')) window.__ticks += 1;
-        click.call(this);
-      };
     });
     await connectAsWiimote(page);
-    // "connected" is two pulses: two ticks.
-    await expect.poll(() => page.evaluate(() => window.__ticks)).toBe(2);
-    await touch.down(1, page.getByTestId('btn-A'));
-    await touch.up(1);
-    await expect.poll(() => page.evaluate(() => window.__ticks)).toBe(3);
-    // The hidden switch never shows and never takes focus.
-    await expect(page.locator('label:has(input[switch])')).toBeHidden();
-    await expect(page.getByTestId('btn-A')).toBeVisible();
+    await page.getByRole('button', { name: 'Settings' }).click();
+    const setting = page.getByTestId('haptics-setting');
+    await expect(setting).toHaveAttribute('data-supported', 'false');
+    await expect(setting).toContainText("can't vibrate");
+    await expect(setting.getByRole('radio')).toHaveCount(0);
   });
 
   test('GamePad: the menu has the setting, and a stick buzzes once at its rim', async ({ page, touch }) => {

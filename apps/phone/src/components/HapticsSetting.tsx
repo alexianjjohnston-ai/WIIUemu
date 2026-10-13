@@ -1,4 +1,5 @@
-import type { HapticStrength } from '../lib/haptics';
+import { useState } from 'react';
+import { hapticsSupported, type HapticStrength } from '../lib/haptics';
 
 const OPTIONS: { value: HapticStrength; label: string }[] = [
   { value: 'off', label: 'Off' },
@@ -13,12 +14,18 @@ interface Props {
 
 /** Vibration strength for presses, the sticks' rim, connecting and calibration. Shared by both controllers. */
 export function HapticsSetting({ value, onChange }: Props) {
+  const [supported] = useState(hapticsSupported);
+  if (!supported) {
+    return (
+      <div className="field" data-testid="haptics-setting" data-supported="false">
+        <span className="field-label">Vibration</span>
+        <span className="field-hint">This phone&apos;s browser can&apos;t vibrate (iPhones don&apos;t allow it for web pages).</span>
+      </div>
+    );
+  }
   return (
-    <fieldset className="field" data-testid="haptics-setting">
-      <legend>
-        Vibration
-        <span className="field-hint">On iPhone it needs iOS 18 or newer and has one strength.</span>
-      </legend>
+    <fieldset className="field" data-testid="haptics-setting" data-supported="true">
+      <legend>Vibration</legend>
       <div className="segmented segmented--compact">
         {OPTIONS.map((o) => (
           <label key={o.value} className="segment" data-checked={value === o.value}>
