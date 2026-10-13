@@ -167,10 +167,17 @@ async fn run_session(socket: &mut WebSocket, ctx: SessionCtx, mut replaced: toki
     let mut last_gyro_t: Option<u64> = None;
     let tracking_allowed = ctx.protocol >= 2 && ctx.role == Role::Wiimote;
     let (status_tx, mut status_rx) = tokio::sync::watch::channel::<Option<ServerMessage>>(None);
+    let (events_tx, mut events_rx) = tokio::sync::mpsc::channel::<ServerMessage>(4);
     let mut tracker: Option<crate::tracking::TrackingHandle> = None;
     let ensure_tracker = |tracker: &mut Option<crate::tracking::TrackingHandle>| {
         if tracker.is_none() {
-            match crate::tracking::spawn(ctx.sessions.clone(), ctx.conn_id, ctx.slot, status_tx.clone()) {
+            match crate::tracking::spawn(
+                ctx.sessions.clone(),
+                ctx.conn_id,
+                ctx.slot,
+                status_tx.clone(),
+                events_tx.clone(),
+            ) {
                 Ok(h) => *tracker = Some(h),
                 Err(e) => tracing::error!("slot {}: cannot start tracking worker: {e}", ctx.slot),
             }
@@ -187,6 +194,12 @@ async fn run_session(socket: &mut WebSocket, ctx: SessionCtx, mut replaced: toki
                     if !send(socket, &status).await {
                         return;
                     }
+                }
+                continue;
+            }
+            Some(event) = events_rx.recv() => {
+                if !send(socket, &event).await {
+                    return;
                 }
                 continue;
             }
@@ -267,6 +280,38 @@ async fn run_session(socket: &mut WebSocket, ctx: SessionCtx, mut replaced: toki
                 ensure_tracker(&mut tracker);
                 if let Some(t) = &tracker {
                     t.submit(crate::tracking::Work::Gyro(samples));
+                }
+            }
+            Ok(ClientMessage::Calibrate) => {
+                if !tracking_allowed {
+                    return fail(
+                        socket,
+                        ErrorCode::InvalidMessage,
+                        "calibrate requires protocol 2 and the wiimote role",
+                    )
+                    .await;
+                }
+                ensure_tracker(&mut tracker);
+                if let Some(t) = &tracker {
+                    t.submit(crate::tracking::Work::Calibrate);
+                }
+            }
+            Ok(ClientMessage::Aim { point }) => {
+                if !tracking_allowed {
+                    return fail(
+                        socket,
+                        ErrorCode::InvalidMessage,
+                        "aim requires protocol 2 and the wiimote role",
+                    )
+                    .await;
+                }
+                let point = match wiiu_controller::protocol::validate_aim_point(point) {
+                    Ok(p) => p,
+                    Err(e) => return fail(socket, e.code(), e.to_string()).await,
+                };
+                ensure_tracker(&mut tracker);
+                if let Some(t) = &tracker {
+                    t.submit(crate::tracking::Work::Aim(point));
                 }
             }
             Ok(ClientMessage::Ping { id }) => {

@@ -338,11 +338,16 @@ async fn https_listener_serves_phones_with_self_signed_cert() {
 
 /// Renders the default marker border frontally (game image centred) as a grayscale JPEG.
 fn border_jpeg(w: usize, h: usize) -> Vec<u8> {
+    border_jpeg_at(w, h, [0.5, 0.5])
+}
+
+/// Like [`border_jpeg`], with the centre of the game image at `centre` (fraction of the frame).
+fn border_jpeg_at(w: usize, h: usize, centre: [f64; 2]) -> Vec<u8> {
     use wiiu_tracking::{BorderConfig, MarkerLayout};
     let layout = MarkerLayout::border(&BorderConfig::default());
     let scale = h as f64 * 0.55; // the whole border (tags are 0.20 of the game height) fits the frame
-    let ox = w as f64 / 2.0 - layout.aspect * scale / 2.0;
-    let oy = h as f64 / 2.0 - scale / 2.0;
+    let ox = w as f64 * centre[0] - layout.aspect * scale / 2.0;
+    let oy = h as f64 * centre[1] - scale / 2.0;
     let to_px = |x: f64, y: f64| (ox + x * layout.aspect * scale, oy + y * scale);
     let mut img = vec![90u8; w * h];
     for m in &layout.markers {
@@ -462,4 +467,126 @@ async fn camera_frame_whose_jpeg_size_differs_from_the_header_closes_the_connect
     let err = recv_error_and_close(&mut ws).await.unwrap();
     assert_eq!(err["code"], "invalid_message");
     assert!(err["message"].as_str().unwrap().contains("header says"), "{err}");
+}
+
+async fn hello_v2(ws: &mut Ws, device: &str) {
+    send(
+        ws,
+        json!({"type":"hello","protocol":2,"token":TOKEN,"role":"wiimote","deviceId":device}),
+    )
+    .await;
+    assert_eq!(recv(ws).await["protocol"], 2);
+}
+
+/// Next message of `kind`, skipping the 10 Hz tracking status.
+async fn recv_type(ws: &mut Ws, kind: &str) -> Value {
+    for _ in 0..100 {
+        let m = recv(ws).await;
+        if m["type"] == kind {
+            return m;
+        }
+    }
+    panic!("no {kind} message");
+}
+
+#[tokio::test]
+async fn calibration_moves_the_aim_point_to_where_the_player_aims() {
+    use wiiu_controller::protocol::encode_camera_frame;
+    let (r, _stop) = server().await;
+    let mut ws = connect(&r).await;
+    hello_v2(&mut ws, "device-5000").await;
+    let probe = DsuProbe::connect(r.dsu_addr).await.unwrap();
+    send(&mut ws, json!({"type":"input","seq":1,"buttons":[],"pointer":null})).await;
+
+    // The phone aims at the TV's centre, but its camera axis is off: the centre appears at (60 %, 45 %).
+    let jpeg = border_jpeg_at(640, 360, [0.6, 0.45]);
+    let mut seq = 0;
+    let frame = |ws_seq: &mut u32| {
+        *ws_seq += 1;
+        Message::Binary(encode_camera_frame(640, 360, *ws_seq, 1_000_000 + u64::from(*ws_seq) * 33_000, &jpeg).into())
+    };
+    // Uncalibrated, the image centre is the aim point: the pointer lands left of and below the TV centre.
+    ws.send(frame(&mut seq)).await.unwrap();
+    let pad = probe.wait_for_pad(1, T, |p| p.touch[0].is_some()).await.unwrap();
+    let t = pad.touch[0].unwrap();
+    assert!(t.x < 900 && t.y > 480, "uncalibrated pointer {t:?}");
+
+    send(&mut ws, json!({"type":"calibrate"})).await;
+    ws.send(frame(&mut seq)).await.unwrap();
+    let result = recv_type(&mut ws, "calibration").await;
+    assert_eq!(result["ok"], true, "{result}");
+    assert!(result["reason"].is_null());
+    let (x, y) = (
+        result["point"]["x"].as_f64().unwrap(),
+        result["point"]["y"].as_f64().unwrap(),
+    );
+    assert!(
+        (x - 0.6).abs() < 0.01 && (y - 0.45).abs() < 0.01,
+        "aim point ({x}, {y})"
+    );
+
+    // Calibrated, the same view points at the TV centre (DSU touch 960, 471).
+    ws.send(frame(&mut seq)).await.unwrap();
+    let centred =
+        |p: &PadData| p.touch[0].is_some_and(|t| (t.x as i32 - 960).abs() < 25 && (t.y as i32 - 471).abs() < 25);
+    probe.wait_for_pad(1, T, centred).await.unwrap();
+
+    // A new connection starts uncalibrated; the phone re-applies its stored point with `aim`.
+    drop(ws);
+    let mut ws = connect(&r).await;
+    hello_v2(&mut ws, "device-5000").await;
+    send(&mut ws, json!({"type":"input","seq":1,"buttons":[],"pointer":null})).await;
+    send(&mut ws, json!({"type":"aim","point":{"x":x,"y":y}})).await;
+    let mut seq = 100;
+    let frame2 = |s: &mut u32| {
+        *s += 1;
+        Message::Binary(encode_camera_frame(640, 360, *s, 9_000_000 + u64::from(*s) * 33_000, &jpeg).into())
+    };
+    ws.send(frame2(&mut seq)).await.unwrap();
+    probe.wait_for_pad(1, T, centred).await.unwrap();
+}
+
+#[tokio::test]
+async fn calibration_without_the_border_in_view_fails_and_keeps_the_old_point() {
+    let (r, _stop) = server().await;
+    let mut ws = connect(&r).await;
+    hello_v2(&mut ws, "device-5001").await;
+    send(&mut ws, json!({"type":"calibrate"})).await;
+    // No camera frames: the request times out after 3 s. Keep the socket alive meanwhile.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
+    let mut next_ping = tokio::time::Instant::now();
+    loop {
+        if tokio::time::Instant::now() >= next_ping {
+            send(&mut ws, json!({"type":"ping","id":1})).await;
+            next_ping += Duration::from_millis(500);
+        }
+        let m = tokio::time::timeout(Duration::from_millis(100), ws.next()).await;
+        if let Ok(Some(Ok(Message::Text(t)))) = m {
+            let v: Value = serde_json::from_str(&t).unwrap();
+            if v["type"] == "calibration" {
+                assert_eq!(
+                    v,
+                    json!({"type":"calibration","ok":false,"point":null,"reason":"no_markers"})
+                );
+                return;
+            }
+        }
+        assert!(tokio::time::Instant::now() < deadline, "no calibration result");
+    }
+}
+
+#[tokio::test]
+async fn aim_points_outside_the_image_and_calibration_on_protocol_v1_are_rejected() {
+    let (r, _stop) = server().await;
+    let mut ws = connect(&r).await;
+    hello_v2(&mut ws, "device-5002").await;
+    send(&mut ws, json!({"type":"aim","point":{"x":1.2,"y":0.5}})).await;
+    let err = recv_error_and_close(&mut ws).await.expect("error");
+    assert_eq!(err["code"], "invalid_message");
+
+    let mut ws = connect(&r).await;
+    hello(&mut ws, "device-5003").await; // protocol 1
+    send(&mut ws, json!({"type":"calibrate"})).await;
+    let err = recv_error_and_close(&mut ws).await.expect("error");
+    assert_eq!(err["code"], "invalid_message");
 }

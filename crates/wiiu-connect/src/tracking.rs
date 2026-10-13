@@ -10,11 +10,11 @@ use std::collections::VecDeque;
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use wiiu_controller::protocol::{GyroSample, PointerXy, ServerMessage, TrackingState};
+use wiiu_controller::protocol::{CalibrationFailure, GyroSample, PointerXy, ServerMessage, TrackingState};
 use wiiu_tracking::detect::{decode_jpeg_gray, TagDetector};
 use wiiu_tracking::filter::{OneEuro2, OneEuroConfig};
 use wiiu_tracking::pipeline::{DeviceGyro, Tracker};
-use wiiu_tracking::{BorderConfig, MarkerLayout, PointerState};
+use wiiu_tracking::{calibrate_aim_point, AimEstimate, BorderConfig, MarkerLayout, PointerState};
 
 /// Without a camera fix for this long the pointer is gyro-only; after `LOST_AFTER` it is reported lost.
 const GYRO_ONLY_AFTER: Duration = Duration::from_millis(300);
@@ -28,10 +28,16 @@ const DEFAULT_HFOV_DEG: f64 = 65.0;
 /// whole border is found from 0.8 to 2.5 m in ~17 ms on 4 threads (2.0× decimation lost every tag beyond ~1 m).
 const QUAD_DECIMATE: f32 = 1.5;
 const MAX_DETECTOR_THREADS: usize = 4;
+/// How long a `calibrate` request waits for a camera fix.
+const CALIBRATION_TIMEOUT: Duration = Duration::from_secs(3);
+/// Calibration aims at the centre of the game image (the cross on the `/tracking` page).
+const CALIBRATION_TARGET: [f64; 2] = [0.5, 0.5];
 
 /// Latest tracking status for the phone. A watch channel keeps only the newest value, so a phone that stops
 /// reading can't make status messages pile up in memory.
 pub type StatusSender = tokio::sync::watch::Sender<Option<ServerMessage>>;
+/// One-off replies for the phone (calibration results). Unlike the status, none of these may be overwritten.
+pub type EventSender = tokio::sync::mpsc::Sender<ServerMessage>;
 
 pub enum Work {
     Frame {
@@ -41,6 +47,10 @@ pub enum Work {
         jpeg: Vec<u8>,
     },
     Gyro(Vec<GyroSample>),
+    /// The player is aiming at the centre now: measure the aim point from the next camera fix.
+    Calibrate,
+    /// Use this aim point (fraction of the camera image; `None` = image centre).
+    Aim(Option<[f64; 2]>),
 }
 
 /// Handle owned by the WebSocket task. Dropping it stops the worker thread.
@@ -63,11 +73,12 @@ pub fn spawn(
     conn_id: u64,
     slot: usize,
     status: StatusSender,
+    events: EventSender,
 ) -> std::io::Result<TrackingHandle> {
     let (tx, rx) = sync_channel(CHANNEL_CAPACITY);
     std::thread::Builder::new()
         .name(format!("tracking-slot{slot}"))
-        .spawn(move || Worker::new(sessions, conn_id, slot, status).run(rx))?;
+        .spawn(move || Worker::new(sessions, conn_id, slot, status, events).run(rx))?;
     Ok(TrackingHandle { tx })
 }
 
@@ -76,6 +87,11 @@ struct Worker {
     conn_id: u64,
     slot: usize,
     status: StatusSender,
+    events: EventSender,
+    /// Calibrated aim point as a fraction of the image (`None` = image centre).
+    aim: Option<[f64; 2]>,
+    /// A `calibrate` request waiting for a camera fix, until this deadline.
+    calibrating_until: Option<Instant>,
     layout: MarkerLayout,
     detector: Option<TagDetector>,
     tracker: Tracker,
@@ -91,7 +107,13 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(sessions: Arc<SessionManager>, conn_id: u64, slot: usize, status: StatusSender) -> Self {
+    fn new(
+        sessions: Arc<SessionManager>,
+        conn_id: u64,
+        slot: usize,
+        status: StatusSender,
+        events: EventSender,
+    ) -> Self {
         let layout = MarkerLayout::border(&BorderConfig::default());
         let threads = std::thread::available_parallelism()
             .map(|n| (n.get() / 2).clamp(1, MAX_DETECTOR_THREADS))
@@ -108,6 +130,9 @@ impl Worker {
             conn_id,
             slot,
             status,
+            events,
+            aim: None,
+            calibrating_until: None,
             tracker: Tracker::new(layout.clone(), 640, 360, DEFAULT_HFOV_DEG),
             layout,
             detector,
@@ -137,6 +162,11 @@ impl Worker {
                 match work {
                     Work::Gyro(samples) => gyro.extend(samples),
                     f @ Work::Frame { .. } => frame = Some(f),
+                    Work::Calibrate => self.calibrating_until = Some(Instant::now() + CALIBRATION_TIMEOUT),
+                    Work::Aim(point) => {
+                        self.aim = point;
+                        self.apply_aim();
+                    }
                 }
             }
             if !gyro.is_empty() {
@@ -159,20 +189,28 @@ impl Worker {
             {
                 self.process_frame(width, height, capture_us, &jpeg);
             }
+            if self.calibrating_until.is_some_and(|t| Instant::now() >= t) {
+                self.calibrating_until = None;
+                self.calibration_result(Err(CalibrationFailure::NoMarkers));
+            }
             self.publish();
         }
     }
 
     fn process_frame(&mut self, width: u16, height: u16, capture_us: u64, jpeg: &[u8]) {
-        let Some(detector) = self.detector.as_mut() else {
+        if self.detector.is_none() {
             return;
-        };
+        }
         let started = Instant::now();
         self.frames.push_back(started);
         self.frame_size = (width, height);
         if self.tracker.image_size() != (width, height) {
             self.tracker = Tracker::new(self.layout.clone(), width, height, DEFAULT_HFOV_DEG);
+            self.apply_aim();
         }
+        let Some(detector) = self.detector.as_mut() else {
+            return;
+        };
         let gray = match decode_jpeg_gray(jpeg, (width, height)) {
             Ok(g) => g,
             Err(e) => {
@@ -187,11 +225,62 @@ impl Worker {
         } else {
             0.9 * self.detect_ms + 0.1 * ms
         };
-        if self.tracker.on_observations(capture_us, &observations).is_ok() {
+        if let Ok(est) = self.tracker.on_observations(capture_us, &observations) {
             let now = Instant::now();
             self.last_fix = Some(now);
             self.fixes.push_back(now);
+            if self.calibrating_until.take().is_some() {
+                self.calibrate(&est);
+            }
         }
+    }
+
+    /// The fix `est` was taken while the player aimed at the centre: its image point becomes the aim point.
+    fn calibrate(&mut self, est: &AimEstimate) {
+        let (w, h) = self.tracker.image_size();
+        let (w, h) = (f64::from(w), f64::from(h));
+        let point = calibrate_aim_point(est, CALIBRATION_TARGET)
+            .map(|[x, y]| [x / w, y / h])
+            .filter(|p| p.iter().all(|v| (0.0..=1.0).contains(v)));
+        match point {
+            Some(p) => {
+                tracing::info!("slot {}: calibrated aim point ({:.3}, {:.3})", self.slot, p[0], p[1]);
+                self.aim = Some(p);
+                self.apply_aim();
+                self.calibration_result(Ok(p));
+            }
+            None => self.calibration_result(Err(CalibrationFailure::OffImage)),
+        }
+    }
+
+    fn calibration_result(&self, result: Result<[f64; 2], CalibrationFailure>) {
+        let msg = match result {
+            Ok([x, y]) => ServerMessage::Calibration {
+                ok: true,
+                point: Some(PointerXy {
+                    x: x as f32,
+                    y: y as f32,
+                }),
+                reason: None,
+            },
+            Err(reason) => ServerMessage::Calibration {
+                ok: false,
+                point: None,
+                reason: Some(reason),
+            },
+        };
+        if self.events.try_send(msg).is_err() {
+            tracing::debug!("slot {}: calibration result dropped (connection closing)", self.slot);
+        }
+    }
+
+    /// Points the tracker at the calibrated aim point (or the image centre). Restarts the pointer filter, since
+    /// the pointer jumps when the aim point changes.
+    fn apply_aim(&mut self) {
+        let (w, h) = self.tracker.image_size();
+        let [x, y] = self.aim.unwrap_or([0.5, 0.5]);
+        self.tracker.set_aim_image_point([x * f64::from(w), y * f64::from(h)]);
+        self.smoothing.reset();
     }
 
     fn state(&mut self, now: Instant) -> (TrackingState, Option<(f32, f32)>) {
