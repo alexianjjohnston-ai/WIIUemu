@@ -24,6 +24,9 @@ pub struct Fake {
     pub menu_now: u64,
     pub monitor_now: [i32; 4],
     pub restore_ok: bool,
+    pub place_ok: bool,
+    /// Windows raised above the others (Cemu's GamePad window).
+    pub raised: Vec<u64>,
 }
 
 pub fn saved_state() -> SavedWindow {
@@ -60,6 +63,7 @@ impl Fake {
             record_before_place: true,
             monitor_now: MONITOR,
             restore_ok: true,
+            place_ok: true,
             ..Self::default()
         }
     }
@@ -87,7 +91,10 @@ impl Desktop for Fake {
     fn place(&mut self, _handle: u64, client: [i32; 4]) -> bool {
         self.record_before_place &= self.record.exists();
         self.placed.push(client);
-        true
+        self.place_ok
+    }
+    fn raise(&mut self, handle: u64) {
+        self.raised.push(handle);
     }
     fn keep(&mut self, _handle: u64, client: [i32; 4]) -> bool {
         self.kept.push(client);

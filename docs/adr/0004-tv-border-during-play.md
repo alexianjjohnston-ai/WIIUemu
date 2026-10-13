@@ -146,6 +146,12 @@ Differences from the design above, each decided while building it:
   client area drifted, never raises or activates it, leaves it minimised if the player minimised it, and skips a
   window that is "Not responding". A menu bar Cemu rebuilt is recorded as the one to restore. A display change
   (resolution, scaling, another monitor) redraws the border there.
+- **Cemu's GamePad window** (the `Cemu.exe` window titled "GamePad View", or with an FPS suffix in any language;
+  `PadViewFrame.cpp` and `wxWindowSystem.cpp`, Cemu main `2c212b5`) is raised above the border and the game after
+  placing, as designed. It may cover a tag or two.
+- **If Cemu can't be moved** (Windows refuses for a Cemu running as administrator), the border is undone at once
+  and the setup page shows an error. It is not retried for the same Cemu window until the border is turned off
+  and on again, so it doesn't flash.
 - **Stopping:** besides Ctrl+C, Wii U Connect handles the console window closing, Ctrl+Break, log-off and shut-down
   (Windows allows about 5 s), so closing its window restores Cemu. A restore that fails while Cemu still runs
   (not responding) keeps the recovery file for the next start.

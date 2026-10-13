@@ -2,7 +2,7 @@
 #![cfg(windows)]
 
 use wiiu_desktop_sys::test_support::{
-    attach_new_menu, is_minimized, menu_of, minimize, style_of, window_rect, StandIn,
+    above, attach_new_menu, is_minimized, menu_of, minimize, style_of, window_rect, StandIn,
 };
 use wiiu_desktop_sys::tv;
 
@@ -75,6 +75,27 @@ fn the_border_window_opens_on_the_monitor_and_closes() {
     assert!(tv::window_owner_pid(handle).is_some());
     drop(border);
     assert_eq!(tv::window_owner_pid(handle), None, "closed");
+}
+
+#[test]
+fn raising_a_window_puts_it_above_another_without_moving_it() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    tv::make_dpi_aware();
+    let pad = StandIn::new("GamePad View", [200, 200, 600, 450]);
+    let main = StandIn::new("Cemu 2.6 stand-in", [100, 100, 900, 700]);
+    let monitor = tv::monitor_rect(main.handle()).expect("monitor");
+    let client = [
+        monitor[0] + 60,
+        monitor[1] + 50,
+        monitor[0] + 60 + 640,
+        monitor[1] + 50 + 360,
+    ];
+    assert!(tv::place_client(main.handle(), client), "placed and raised");
+    assert!(above(main.handle(), pad.handle()));
+    let before = window_rect(pad.handle());
+    assert!(tv::raise_window(pad.handle()));
+    assert!(above(pad.handle(), main.handle()), "the GamePad window is on top again");
+    assert_eq!(window_rect(pad.handle()), before);
 }
 
 #[test]
