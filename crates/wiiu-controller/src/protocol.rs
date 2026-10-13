@@ -42,6 +42,8 @@ pub enum ClientMessage {
     /// Protocol ≥ 2: apply a stored aim point (fraction of the camera image), or the image centre for `null`.
     /// Check it with [`validate_aim_point`].
     Aim {
+        // Required, but may be `null`: without `deserialize_with`, serde would accept a missing field as `None`.
+        #[serde(deserialize_with = "Option::deserialize")]
         point: Option<Xy>,
     },
 }
@@ -452,6 +454,8 @@ mod calibration_tests {
             Ok(ClientMessage::Aim { point: None })
         );
         assert!(parse_client_message(r#"{"type":"aim","point":{"x":"0.5","y":0.5}}"#).is_err());
+        // `point` is required: a missing field must not silently reset the calibration.
+        assert!(parse_client_message(r#"{"type":"aim"}"#).is_err());
     }
 
     #[test]

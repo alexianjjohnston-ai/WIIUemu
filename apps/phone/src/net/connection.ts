@@ -142,7 +142,8 @@ export class Connection {
     const ws = this.socket;
     if (!ws || ws.readyState !== OPEN) return false;
     if (msg.type === 'input' && ws.bufferedAmount > MAX_BUFFERED_BYTES) return false;
-    if (msg.type === 'gyro' && !this.supportsTracking) return false;
+    // Protocol 2 only: a protocol 1 PC rejects these and closes the connection.
+    if ((msg.type === 'gyro' || msg.type === 'calibrate' || msg.type === 'aim') && !this.supportsTracking) return false;
     try {
       ws.send(JSON.stringify(msg));
       return true;

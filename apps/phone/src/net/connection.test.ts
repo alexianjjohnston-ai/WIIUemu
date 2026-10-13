@@ -267,6 +267,10 @@ describe('Connection', () => {
     expect(conn.canSendFrame()).toBe(false);
     expect(conn.sendFrame(new Uint8Array(30))).toBe(false);
     expect(conn.send({ type: 'gyro', samples: [[1, 0, 0, 0]] })).toBe(false);
+    // Calibration is protocol 2 too: a protocol 1 PC would reject it and close the connection.
+    expect(conn.send({ type: 'calibrate' })).toBe(false);
+    expect(conn.send({ type: 'aim', point: { x: 0.5, y: 0.5 } })).toBe(false);
+    expect(last().sent.filter((m) => /"type":"(calibrate|aim)"/.test(m))).toEqual([]);
   });
 
   it('closes when the server announces another protocol version', () => {
