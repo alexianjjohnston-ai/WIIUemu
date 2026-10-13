@@ -42,8 +42,8 @@ struct ServeArgs {
     /// Fixed pairing token (min. 16 chars). Random per start when omitted.
     #[arg(long, env = "WIIU_CONNECT_TOKEN")]
     token: Option<String>,
-    /// Directory with the built phone app. Default: `web/` next to the executable (release packages),
-    /// then `apps/phone/dist` (source checkout).
+    /// Directory with the built phone app. Default: `web/` next to the executable, then `apps/phone/dist`
+    /// (source checkout), then the copy built into the executable.
     #[arg(long)]
     web_dir: Option<PathBuf>,
     /// Additional allowed WebSocket origin, e.g. http://localhost:5173 for the Vite dev server.
@@ -58,9 +58,15 @@ struct ServeArgs {
     /// Serve phones over plain HTTP only (buttons work; camera and iOS motion sensors will not).
     #[arg(long)]
     no_https: bool,
-    /// Folder for the HTTPS certificate and other runtime data.
+    /// Folder for the HTTPS certificate, the Cemu installed by setup and other runtime data.
     #[arg(long)]
     data_dir: Option<PathBuf>,
+    /// Don't open the setup page in the browser on start.
+    #[arg(long)]
+    no_browser: bool,
+    /// Disable the setup page (Cemu download and configuration).
+    #[arg(long)]
+    no_setup: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -129,20 +135,25 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             .collect(),
     };
     let web_dir = candidates.iter().find(|d| d.join("index.html").is_file()).cloned();
-    if web_dir.is_none() {
+    if web_dir.is_none() && !wiiu_connect::embedded::available() {
         tracing::warn!("phone app not found (looked in {candidates:?}) – build apps/phone or pass --web-dir");
     }
+    let data_dir = args.data_dir.unwrap_or_else(wiiu_connect::tls::default_data_dir);
     let (running, task) = wiiu_connect::start(
         ServerConfig {
             bind: args.bind,
             dsu_bind: args.dsu,
             token: args.token,
             web_dir,
+            embedded_web: true,
+            setup: (!args.no_setup).then(|| wiiu_connect::setup::SetupConfig {
+                data_dir: data_dir.clone(),
+            }),
             allowed_origins: args.allowed_origins,
             public_host: args.public_host,
             https: (!args.no_https).then(|| wiiu_connect::HttpsConfig {
                 bind: args.https_bind,
-                data_dir: args.data_dir.unwrap_or_else(wiiu_connect::tls::default_data_dir),
+                data_dir: data_dir.clone(),
             }),
         },
         stop_rx,
@@ -153,6 +164,9 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     println!();
     println!("  Wii U Connect is running");
     println!("  ─────────────────────────");
+    if !args.no_setup {
+        println!("  Setup:              {local}/setup  (Cemu, controllers, your games)");
+    }
     println!("  Pair phones:        {local}/pair   (open on this PC)");
     println!("  Phone link:         {}", running.phone_url);
     println!("  Mouse pointer test: {local}/dev/pointer");
@@ -170,6 +184,10 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             .quiet_zone(true)
             .build();
         println!("{qr}");
+    }
+
+    if !args.no_setup && !args.no_browser {
+        wiiu_connect::setup::open_browser(&format!("{local}/setup"));
     }
 
     tokio::signal::ctrl_c().await.context("waiting for Ctrl+C")?;

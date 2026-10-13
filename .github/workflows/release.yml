@@ -4,11 +4,13 @@ name: Release
 # - Manual run (Actions → Release → Run workflow): builds packages as workflow artifacts only.
 # - Pushing a tag like v0.1.0: also creates a *draft* GitHub release with the packages attached,
 #   which the repository owner reviews and publishes.
+# - Pushing a `test/**` branch: builds packages as workflow artifacts only (for hands-on testing).
 
 on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+    branches: ["test/**"]
 
 permissions:
   contents: read
@@ -45,18 +47,37 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --locked -p wiiu-connect
+      # The phone app is compiled into the executable (crates/wiiu-connect/build.rs).
       - uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
           name: phone-web
-          path: package/web
+          path: apps/phone/dist
+      - run: cargo build --release --locked -p wiiu-connect
+      - name: Smoke test (download and set up the official Cemu release)
+        if: startsWith(github.ref, 'refs/heads/test/')
+        shell: pwsh
+        run: |
+          $data = Join-Path $env:RUNNER_TEMP 'wiiu-data'
+          $p = Start-Process -FilePath target/release/wiiu-connect.exe -PassThru -ArgumentList '--no-browser','--no-https','--bind','127.0.0.1:8737','--data-dir',$data
+          Start-Sleep 3
+          Invoke-RestMethod -Method Post -Uri http://localhost:8737/api/setup/cemu/download -Headers @{ Origin = 'http://localhost:8737' } -ContentType 'application/json' -Body '{}'
+          for ($i = 0; $i -lt 120; $i++) {
+            $s = Invoke-RestMethod http://localhost:8737/api/setup/status
+            if ($s.setup.download.state -ne 'running') { break }
+            Start-Sleep 2
+          }
+          $s.setup | ConvertTo-Json -Depth 5
+          Stop-Process $p
+          if ($s.setup.download.state -ne 'done') { throw "Cemu install failed: $($s.setup.download.error)" }
+          foreach ($f in 'Cemu.exe', 'portable\controllerProfiles\controller1.xml', 'portable\controllerProfiles\controller3.xml') {
+            if (-not (Test-Path (Join-Path $data "Cemu\$f"))) { throw "missing $f" }
+          }
       - name: Package
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force package | Out-Null
           Copy-Item target/release/wiiu-connect.exe package/
-          Copy-Item README.md, THIRD_PARTY_NOTICES.md package/ -ErrorAction SilentlyContinue
+          Copy-Item README.md, TESTING.md, THIRD_PARTY_NOTICES.md package/ -ErrorAction SilentlyContinue
           Compress-Archive -Path package/* -DestinationPath wiiu-connect-windows-x64.zip
       - uses: actions/upload-artifact@v4
         with:
@@ -73,13 +94,12 @@ jobs:
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --locked -p wiiu-connect --target aarch64-apple-darwin
-      - run: cargo build --release --locked -p wiiu-connect --target x86_64-apple-darwin
       - uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
           name: phone-web
-          path: package/web
+          path: apps/phone/dist
+      - run: cargo build --release --locked -p wiiu-connect --target aarch64-apple-darwin
+      - run: cargo build --release --locked -p wiiu-connect --target x86_64-apple-darwin
       - name: Universal binary + package
         run: |
           mkdir -p package
@@ -89,7 +109,7 @@ jobs:
           # Ad-hoc signature: required for arm64 executables; not a Developer ID (Gatekeeper still warns).
           codesign --force --sign - package/wiiu-connect
           lipo -info package/wiiu-connect
-          cp README.md package/
+          cp README.md TESTING.md package/
           cp THIRD_PARTY_NOTICES.md package/ 2>/dev/null || true
           ditto -c -k --sequesterRsrc package wiiu-connect-macos-universal.zip
       - uses: actions/upload-artifact@v4

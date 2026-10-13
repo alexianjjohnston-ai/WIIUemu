@@ -18,7 +18,7 @@ wiiu-tracking = { workspace = true, features = ["detector"] }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["process"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 axum = { version = "0.8", features = ["ws"] }
@@ -29,6 +29,11 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 axum-server = { version = "0.8", default-features = false, features = ["tls-rustls-no-provider"] }
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
+rustls-native-certs = "0.8"
+webpki-roots = "0.26"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
+thiserror.workspace = true
 
 [dev-dependencies]
 tokio-tungstenite = "0.26"

@@ -4,6 +4,8 @@
 //! `InputManager::save` / `InputManager::load` (src/input/InputManager.cpp, Cemu commit `aa20e2f`). Writing
 //! a profile with the exact DSU bindings saves users from binding every button by hand.
 
+pub mod install;
+
 use std::fs;
 use std::io;
 use std::net::Ipv4Addr;

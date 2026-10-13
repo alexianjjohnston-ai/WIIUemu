@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Setup page** (`/setup`, opens automatically on start; PC-only and CSRF-protected):
+  - Downloads the official Cemu release (Windows zip, Linux AppImage) into a portable folder, or uses your existing
+    Cemu.
+  - Points Cemu's Controllers 2–4 at the phone Wii Remotes, backing up existing settings.
+  - Adds your own game folders to Cemu, lists the games and launches them.
+  - It never downloads games, keys or system files.
+- Single-file release: the phone app is compiled into `wiiu-connect` (no `web` folder).
+
 ### Changed
 - Camera pointing, after the first real-phone test:
   - Range: frames are now up to 960 px, tags 20% of the game height, and detection runs at 1.5× decimation on up to

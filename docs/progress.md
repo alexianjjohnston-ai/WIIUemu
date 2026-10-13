@@ -2,6 +2,34 @@
 
 Hand-off notes for the next session. Newest first.
 
+## 2026-10-12: Setup page and single-file release (branch `feat/setup-wizard`)
+
+The owner asked for one exe that handles emulator and game setup, "integrating Cemu and a Wii U downloader".
+
+**Declined:** the game downloader. Downloading Wii U games from Nintendo's servers with title keys is piracy, and
+the project rules forbid obtaining or bundling games, keys or system files.
+
+**Built instead:**
+- **Setup page** `/setup`, opened automatically on start:
+  - Downloads the official Cemu release (MPL-2.0) from GitHub into `<data dir>/Cemu` (portable).
+  - Assigns the Wii Remote profiles to Controllers 2–4, with backups.
+  - Adds the user's own game folders to `settings.xml`, scans them (`.wua`, `.wud`, `.wux`, `.iso` and unpacked
+    `code/` + `meta/meta.xml`) and launches games with `Cemu -g`.
+  - Only games from the scanned list can be launched.
+- **Single exe:** `build.rs` embeds `apps/phone/dist`.
+
+**Verified:**
+- 135 Rust tests, including end-to-end API tests: the setup flow, CSRF and DNS-rebinding refusal, and that only
+  scanned games launch.
+- Live in the container with Playwright: auto-redirect, locate, controllers, games, and the download-error
+  display. The release binary served the embedded phone app with no `web` folder.
+
+**Not verified here:**
+- The real Cemu download. GitHub's API is blocked by this container's network policy. The Windows release job
+  now runs a smoke test that downloads and sets up the real Cemu on a GitHub Windows runner.
+- The OS folder picker (PowerShell / osascript / zenity).
+- Launching real Cemu.
+
 ## 2026-10-12: Milestone 2 (software side): camera pointing
 
 Branch `feat/apriltag-tracking` (PR #3), stacked on PR #1.

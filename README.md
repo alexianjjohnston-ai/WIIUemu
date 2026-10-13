@@ -37,6 +37,10 @@ Prebuilt packages are attached to [GitHub Releases](../../releases) once a versi
 - **Windows:** `wiiu-connect-windows-x64.zip`
 - **macOS (Apple Silicon and Intel):** `wiiu-connect-macos-universal.zip`
 
+Each download is a single program. Start it and the **setup page** opens in your browser. On Windows it can
+download and set up the official Cemu for you. Then you add the folder with your own game dumps, and the phones
+pair by QR code. Wii U Connect never downloads games, keys or Nintendo system files. See [TESTING.md](TESTING.md).
+
 The Mac build is not notarised. After unzipping, run once in Terminal:
 `xattr -d com.apple.quarantine wiiu-connect`, then start it with `./wiiu-connect`. Allow incoming connections
 when macOS asks; phones need to reach it.

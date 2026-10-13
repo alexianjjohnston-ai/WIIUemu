@@ -10,6 +10,8 @@ publish.workspace = true
 wiiu-controller.workspace = true
 wiiu-dsu.workspace = true
 thiserror.workspace = true
+serde.workspace = true
+xmltree = "0.11"
 
 [dev-dependencies]
 roxmltree = "0.20"
