@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Release workflow: a manual run on `main` with **Make the release** ticked tags the built commit and creates the
+  GitHub release, for when a tag can't be pushed. Pre-releases are published at once; full versions stay drafts.
+
 ## [0.9.0-beta.1] - 2026-10-13
 
 First beta. Every feature below is tested in CI and with simulated phones, but not yet on real phones, a real TV

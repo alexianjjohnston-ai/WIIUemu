@@ -2,6 +2,17 @@
 
 Hand-off notes for the next session. Newest first.
 
+## 2026-10-13: Releases without a tag push (branch `ci/release-from-workflow`)
+
+- Pushing `v0.9.0-beta.1` from the session failed (HTTP 403 on tag pushes), and the owner works from a phone. The
+  owner asked me to make the release, so the Release workflow gained a manual **Make the release** input: on
+  `main` it checks the version, the changelog section and that the tag is new, runs the full build and smoke
+  tests, and creates the release on the built commit. Pre-releases are published by the workflow; full versions
+  stay drafts for the owner's hardware check.
+- **Owner decisions on the roadmap (2026-10-13):** beta yes; marker border during play with a smaller game
+  picture (option A); border before streaming; no code signing unless it becomes necessary; after-1.0 order left
+  to me (kept as in docs/roadmap.md).
+
 ## 2026-10-13: First beta, `v0.9.0-beta.1` (branch `chore/release-0.9.0-beta.1`)
 
 - The owner approved merging #23 (roadmap) and #24 (pinned actions) and asked for a release version. The release

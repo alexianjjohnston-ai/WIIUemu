@@ -7,9 +7,17 @@ name: Release
 #   CHANGELOG.md and SHA256 checksums. The repository owner reviews and publishes it (docs/releasing.md).
 # - Manual run (Actions → Release → Run workflow) or pushing a `test/**` branch: same builds and tests, the
 #   files are attached to the workflow run only.
+# - Manual run on `main` with "Make the release" ticked: the same as pushing the tag, for when a tag can't be
+#   pushed (e.g. from a phone). The release gets the tag `v<version>` on the commit that was built. A
+#   pre-release (a version like 0.9.0-beta.1) is published at once; a full version stays a draft for the owner.
 
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Make the release: tag this commit with its version and create the GitHub release (main only)"
+        type: boolean
+        default: false
   push:
     tags: ["v*"]
     branches: ["test/**"]
@@ -19,6 +27,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # A manual run asked to make the release (validated in the version job).
+  RELEASE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.release }}
   # A release build without the phone app inside is a broken download: make it a build error.
   WIIU_CONNECT_REQUIRE_WEB: "1"
 
@@ -46,7 +56,17 @@ jobs:
             if [ "$GITHUB_REF_NAME" != "v$version" ]; then
               echo "::error::tag $GITHUB_REF_NAME does not match version v$version"; exit 1
             fi
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/* || "$RELEASE_RUN" == "true" ]]; then
             grep -q "^## \[$version\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no '## [$version]' section"; exit 1; }
+          fi
+          if [[ "$RELEASE_RUN" == "true" ]]; then
+            if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+              echo "::error::a release can only be made from main, not $GITHUB_REF"; exit 1
+            fi
+            if [ -n "$(git ls-remote --tags origin "refs/tags/v$version")" ]; then
+              echo "::error::tag v$version already exists: set a new version first (scripts/set-version.sh)"; exit 1
+            fi
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
@@ -158,7 +178,7 @@ jobs:
             if ($code -ne '200') { throw "HTTPS listener answered $code" }
           } finally { Stop-Process $p -ErrorAction SilentlyContinue }
       - name: Smoke test (automatic setup installs the built-in Cemu, then updating downloads it)
-        if: startsWith(github.ref, 'refs/heads/test/') || startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/heads/test/') || startsWith(github.ref, 'refs/tags/v') || env.RELEASE_RUN == 'true'
         shell: pwsh
         run: |
           $data = Join-Path $env:RUNNER_TEMP 'wiiu-data'
@@ -254,7 +274,7 @@ jobs:
 
   release:
     name: Draft GitHub release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release)
     needs: [version, windows, macos]
     runs-on: ubuntu-latest
     permissions:
@@ -282,10 +302,22 @@ jobs:
           ' CHANGELOG.md > notes.md
           sed "s/<cemu-version>/${CEMU_TAG}/g" docs/release-notes-footer.md >> notes.md
           cat notes.md
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+      # Always created as a draft, so the files are attached before anyone can see it. For a manual release run
+      # GitHub creates the tag on the built commit when the release is published.
+      - id: draft
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
           draft: true
           prerelease: ${{ contains(needs.version.outputs.version, '-') }}
           name: Wii U Connect ${{ needs.version.outputs.version }}
           body_path: notes.md
           files: out/*
+      - name: Publish the pre-release (manual release run only)
+        if: env.RELEASE_RUN == 'true' && contains(needs.version.outputs.version, '-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.draft.outputs.id }}
+        # By id: the tag-name lookup doesn't find drafts.
+        run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F draft=false --jq '.html_url'
