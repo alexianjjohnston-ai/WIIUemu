@@ -21,6 +21,7 @@ Good first candidates for pointer verification: Wii Party U, Mario Party 10 and 
 | Nunchuk stick and C/Z | protocol and mapping done | unit tests only; no phone UI yet |
 | Motion (accel/gyro) | phone sensors → DSU for the GamePad and Wii Remotes (opt-in button) | unit + e2e tests with synthetic DeviceMotion events in both engine conventions; **axis directions not yet checked in Cemu or on a real phone** |
 | GamePad buttons, sticks and touch | phone GamePad screen, Cemu GamePad profile assigned by setup | unit + 12 e2e tests (Pixel 7 / iPhone 13 emulation, landscape); **not yet tested in Cemu**; no video yet |
+| Haptic feedback (phone only) | Vibration API (Android); Off / Light / Strong. **iPhone: not possible** from a web page (no Vibration API; WebKit 313638@main blocks the switch-click workaround) | unit + e2e tests with a recorded `navigator.vibrate`; **not yet felt on a real Android phone**. Game rumble can't reach DSU controllers (Cemu `DSUMessages.h`: `Rumble // TODO`) |
 | Cemu profile generation | done | schema tests against Cemu's loader; **not yet loaded in Cemu** |
 
 ## Platforms

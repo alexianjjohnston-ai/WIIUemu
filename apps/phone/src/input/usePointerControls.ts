@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from 'react';
 import type { InputEngine } from './engine';
 import { dpadDirections, type DpadDirection } from './dpad';
-import { hapticTap } from '../lib/haptics';
+import { haptic } from '../lib/haptics';
 
 type El = HTMLElement;
 
@@ -55,7 +55,7 @@ export function useButtonPointer<B extends string>(engine: InputEngine<B>, butto
         if (!isPrimaryPress(e)) return;
         e.preventDefault();
         capture(e);
-        if (engine.press(sourceOf(e), button)) hapticTap();
+        if (engine.press(sourceOf(e), button)) haptic('press');
       },
       ...releaseHandlers(engine),
     }),
@@ -74,7 +74,7 @@ export function useDpadPointer<B extends string>(engine: InputEngine<B | DpadDir
         Math.min(rect.width, rect.height) / 2,
       );
       const before = engine.getButtons();
-      if (engine.setSource(sourceOf(e), dirs) && dirs.some((d) => !before.includes(d))) hapticTap();
+      if (engine.setSource(sourceOf(e), dirs) && dirs.some((d) => !before.includes(d))) haptic('dpad');
     };
     const active = new Set<number>();
     const release = releaseHandlers(engine);

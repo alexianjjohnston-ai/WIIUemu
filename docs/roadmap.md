@@ -89,7 +89,7 @@ Ordered by value for players against effort. Each is a separate PR with its own 
 
 - **Game rumble on the phones.** Cemu's DSU client has a `Rumble` message type marked `// TODO`
   (`src/input/api/DSU/DSUMessages.h`, Cemu `21878f1`), so Cemu never sends rumble to DSU controllers. Short
-  vibrations on button presses are possible on the phone alone (Android; iOS Safari has no vibration API).
+  vibrations from the phone alone (presses, connecting, calibration) are built for Android. iPhones can't vibrate for a web page at all; that needs a native iOS app.
   Real game rumble would need a Cemu contribution first.
 
 ### Never

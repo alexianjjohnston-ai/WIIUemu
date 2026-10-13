@@ -134,6 +134,16 @@ Used by the setup page (`crates/wiiu-cemu/src/install.rs`, `crates/wiiu-connect/
   reported the pointer moving the wrong way. This is likely the cause, but it is **unverified** until the next
   device test.
 
+## 6c. Phone haptics from a web page (source-verified, 2026-10-13)
+
+- Android Chrome has the Vibration API (`navigator.vibrate`); the phone app uses it.
+- iOS Safari has no Vibration API. From iOS 18, toggling `<input type="checkbox" switch>` plays a system haptic,
+  and pages used a scripted `label.click()` to trigger it. WebKit closed that path: 288403@main requires user
+  activation for switch haptics, and PR #65327 (313638@main, merged 2026-05-21, "Haptic feedback for
+  `<input type=checkbox switch>` can be triggered with a programmatic click on an associated label") makes a
+  label's scripted click untrusted. So a web page can't make an iPhone vibrate on button presses; only a native
+  iOS app can.
+
 ## 7. Related upstream work
 
 - **Cemu PR #1971** "Add mouse to wiimote pointer feature" (open, ready for review since 2026-07-05): adds a

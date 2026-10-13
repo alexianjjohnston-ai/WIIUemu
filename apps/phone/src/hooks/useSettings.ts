@@ -1,7 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { setHapticStrength } from '../lib/haptics';
 import { clampScale, loadSettings, saveSettings, type Settings } from '../lib/settings';
 
-/** Layout settings, persisted to localStorage (best effort). */
+/** Controller settings, persisted to localStorage (best effort). */
 export function useSettings(): [Settings, (patch: Partial<Settings>) => void] {
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
   const update = useCallback((patch: Partial<Settings>) => {
@@ -12,5 +13,8 @@ export function useSettings(): [Settings, (patch: Partial<Settings>) => void] {
       return next;
     });
   }, []);
+  useEffect(() => {
+    setHapticStrength(settings.haptics);
+  }, [settings.haptics]);
   return [settings, update];
 }

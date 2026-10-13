@@ -43,3 +43,23 @@ export function touchPosition(clientX: number, clientY: number, rect: RectLike):
     y: round(clamp((clientY - rect.top) / rect.height), 4),
   };
 }
+
+/** Stick length at which the rim counts as reached, and below which the next rim hit counts again. */
+const EDGE_ON = 0.97;
+const EDGE_REARM = 0.9;
+
+/** Reports when a stick reaches its rim; it fires again only after the stick has come back in. */
+export function createStickEdge(): { update(v: Vec2): boolean } {
+  let armed = true;
+  return {
+    update(v) {
+      const len = Math.hypot(v.x, v.y);
+      if (armed && len >= EDGE_ON) {
+        armed = false;
+        return true;
+      }
+      if (len < EDGE_REARM) armed = true;
+      return false;
+    },
+  };
+}
