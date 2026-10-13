@@ -194,3 +194,69 @@ async fn setup_requests_from_other_sites_or_hosts_are_refused() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn tv_border_switch_is_saved_and_shown() {
+    let dir = temp("tvborder");
+    let data = dir.join("data");
+    let (r, stop) = server(&data).await;
+    let addr = r.http_addr;
+    let host = format!("localhost:{}", addr.port());
+    let same_origin = [
+        ("Origin", format!("http://{host}")),
+        ("Content-Type", "application/json".to_string()),
+    ];
+    let status = |addr: SocketAddr, host: String| async move {
+        let (code, resp) = request(addr, "GET", "/api/setup/status", &host, &[], "").await;
+        assert_eq!(code, 200, "{resp}");
+        json_body(&resp)
+    };
+
+    let (code, page) = request(addr, "GET", "/setup", &host, &[], "").await;
+    assert_eq!(code, 200);
+    assert!(
+        page.contains(r#"id="step-tv""#) && page.contains("/api/setup/tv-border"),
+        "TV border card on the page"
+    );
+
+    let s = status(addr, host.clone()).await;
+    assert_eq!(s["tv_border"]["mode"], "auto", "{s}");
+    assert!(s["tv_border"]["status"]["state"].is_string(), "{s}");
+
+    let (code, resp) = request(
+        addr,
+        "POST",
+        "/api/setup/tv-border",
+        &host,
+        &same_origin,
+        r#"{"mode":"off"}"#,
+    )
+    .await;
+    assert_eq!(code, 204, "{resp}");
+    assert_eq!(status(addr, host.clone()).await["tv_border"]["mode"], "off");
+
+    // Unknown values are refused, not guessed.
+    for body in [r#"{"mode":"maybe"}"#, r#"{"mode":1}"#, "{}"] {
+        let (code, resp) = request(addr, "POST", "/api/setup/tv-border", &host, &same_origin, body).await;
+        assert_eq!(code, 400, "{body}: {resp}");
+    }
+    // Like every setup action, only the setup page may change it.
+    let (code, _) = request(
+        addr,
+        "POST",
+        "/api/setup/tv-border",
+        &host,
+        &[("Content-Type", "application/json".to_string())],
+        r#"{"mode":"on"}"#,
+    )
+    .await;
+    assert_eq!(code, 403);
+
+    // The choice survives a restart.
+    let _ = stop.send(true);
+    drop(r);
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let (r2, _stop2) = server(&data).await;
+    let host2 = format!("localhost:{}", r2.http_addr.port());
+    assert_eq!(status(r2.http_addr, host2).await["tv_border"]["mode"], "off");
+}

@@ -104,11 +104,23 @@
         <div>Scan this with each phone's camera (same Wi-Fi as this PC), then choose <b>GamePad</b> or
           <b>Wii Remote</b>. The phone warns about the certificate once: continue anyway.</div>
         <div class="muted" style="margin-top:6px">Or type: <code id="phone-url"></code></div>
-        <div class="muted" style="margin-top:6px">For camera pointing, show <a href="/tracking" target="_blank">the TV
-          border page</a> fullscreen.</div>
+        <div class="muted" style="margin-top:6px" id="tracking-hint">For camera pointing, show
+          <a href="/tracking" target="_blank">the TV border page</a> fullscreen.</div>
       </div>
     </div>
     <div id="phones" class="small"></div>
+  </section>
+
+  <section class="card" id="step-tv">
+    <div class="head"><h2>TV border for camera pointing</h2><span class="chip" id="tv-chip"></span></div>
+    <p class="small muted">The phones aim by seeing the black-and-white squares around the game. Auto shows them
+      while a Wii Remote phone's camera is on; the game shrinks to fit inside them.</p>
+    <div class="row" role="group" aria-label="TV border">
+      <button id="tv-auto" data-mode="auto">Auto</button>
+      <button id="tv-on" data-mode="on">On</button>
+      <button id="tv-off" data-mode="off">Off</button>
+    </div>
+    <div class="error small" id="tv-error"></div>
   </section>
 
   <section class="card" id="step-play">
@@ -175,7 +187,33 @@ function renderAuto(steps) {
     : needsYou.length ? 'Some steps need you: see the sections below.' : 'All set: scan the QR code with your phones, then press Play.';
 }
 
-function render({ setup: s, phones, phone_url }) {
+const TV_TEXT = {
+  off: () => 'Off',
+  waiting_for_cemu: () => "Waiting for Cemu's game window",
+  on: (st) => `On: game ${st.width}×${st.height}`,
+  unsupported: () => 'Windows only for now',
+  error: (st) => st.message,
+};
+
+function renderTv(tv) {
+  if (!tv) return;
+  for (const mode of ['auto', 'on', 'off']) {
+    const b = $(`tv-${mode}`);
+    const active = tv.mode === mode;
+    b.className = active ? 'primary' : '';
+    b.setAttribute('aria-pressed', String(active));
+    b.disabled = busy;
+  }
+  const st = tv.status || { state: 'off' };
+  setDone('step-tv', st.state === 'on', (TV_TEXT[st.state] || (() => st.state))(st));
+  $('step-tv').dataset.state = st.state;
+  if (st.state !== 'unsupported') {
+    $('tracking-hint').textContent = 'Camera pointing: the TV border below appears by itself.';
+  }
+}
+
+function render({ setup: s, phones, phone_url, tv_border }) {
+  renderTv(tv_border);
   $('version').textContent = s.version ? `v${s.version}` : '';
   renderAuto(s.auto || []);
   if (phone_url) $('phone-url').textContent = phone_url;
@@ -235,6 +273,10 @@ function render({ setup: s, phones, phone_url }) {
     list.append(li);
   }
   $('btn-open-cemu').disabled = !c || busy;
+}
+
+for (const mode of ['auto', 'on', 'off']) {
+  $(`tv-${mode}`).onclick = () => post('/api/setup/tv-border', { mode }, $('tv-error'));
 }
 
 // One status request at a time: a slow answer (e.g. scanning a network drive) delays the next poll instead of

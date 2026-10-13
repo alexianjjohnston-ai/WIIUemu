@@ -53,6 +53,9 @@ pub struct SetupConfig {
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Saved {
     cemu_dir: Option<PathBuf>,
+    /// The TV border switch (ADR-0004).
+    #[serde(default)]
+    tv_border: crate::tv_border::TvBorderMode,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -224,6 +227,16 @@ impl Setup {
             games: Mutex::new(None),
             scanning: Mutex::new(()),
         })
+    }
+
+    pub fn tv_border_mode(&self) -> crate::tv_border::TvBorderMode {
+        self.saved.lock().unwrap_or_else(|e| e.into_inner()).tv_border
+    }
+
+    /// Saves the TV border switch for the next start.
+    pub fn set_tv_border_mode(&self, mode: crate::tv_border::TvBorderMode) -> std::io::Result<()> {
+        self.saved.lock().unwrap_or_else(|e| e.into_inner()).tv_border = mode;
+        self.save()
     }
 
     fn managed_dir(&self) -> PathBuf {

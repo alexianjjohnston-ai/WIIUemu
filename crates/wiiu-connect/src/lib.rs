@@ -149,7 +149,8 @@ pub async fn start(
         .as_ref()
         .map(|s| s.data_dir.clone())
         .or_else(|| config.https.as_ref().map(|h| h.data_dir.clone()));
-    let tv_border = tv_border::TvBorder::new(tv_border::TvBorderMode::default(), tv_border::TvStatus::Off);
+    let mode = setup.as_ref().map(|s| s.tv_border_mode()).unwrap_or_default();
+    let tv_border = tv_border::TvBorder::new(mode, tv_border::TvStatus::Off);
     let tv_thread = data_dir.and_then(|dir| {
         tv_border::spawn(
             tv_border.clone(),
