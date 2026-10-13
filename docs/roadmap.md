@@ -96,7 +96,19 @@ Ordered by value for players against effort. Each is a separate PR with its own 
 
 Downloading games, system files or console keys. Players use their own dumps (README, CLAUDE.md).
 
-## Decisions for the owner
+## Owner decisions (2026-10-13)
+
+1. Beta: yes. `v0.9.0-beta.1` is published.
+2. Marker border during play: a smaller game picture (option A), on automatically while a camera is on.
+   Design: [ADR-0004](adr/0004-tv-border-during-play.md).
+3. Order: marker border before streaming.
+4. Code signing: not unless it becomes necessary.
+5. After 1.0: left to me; Part 2 keeps its order.
+
+Added on request the same day: haptic feedback (PR #27), and the PC side in its own app window instead of a
+browser tab ([ADR-0003](adr/0003-desktop-app-window.md)). Order of work: haptics, app window, marker border.
+
+## Decisions for the owner (as asked)
 
 1. **Beta:** cut `0.9.0-beta.1` now (after #22 merges)?
 2. **Marker border during play:** is a smaller game picture (option A) acceptable, or should the motion-only
