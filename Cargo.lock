@@ -1861,14 +1861,14 @@ dependencies = [
 
 [[package]]
 name = "wiiu-apriltag-sys"
-version = "0.1.0"
+version = "0.9.0-beta.1"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "wiiu-cemu"
-version = "0.1.0"
+version = "0.9.0-beta.1"
 dependencies = [
  "roxmltree",
  "serde",
@@ -1880,7 +1880,7 @@ dependencies = [
 
 [[package]]
 name = "wiiu-connect"
-version = "0.1.0"
+version = "0.9.0-beta.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -1914,7 +1914,7 @@ dependencies = [
 
 [[package]]
 name = "wiiu-controller"
-version = "0.1.0"
+version = "0.9.0-beta.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1924,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "wiiu-dsu"
-version = "0.1.0"
+version = "0.9.0-beta.1"
 dependencies = [
  "crc32fast",
  "thiserror",
@@ -1934,7 +1934,7 @@ dependencies = [
 
 [[package]]
 name = "wiiu-tracking"
-version = "0.1.0"
+version = "0.9.0-beta.1"
 dependencies = [
  "jpeg-decoder",
  "jpeg-encoder",
