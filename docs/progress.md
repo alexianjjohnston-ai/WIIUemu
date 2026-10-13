@@ -2,6 +2,17 @@
 
 Hand-off notes for the next session. Newest first.
 
+## 2026-10-13: First beta, `v0.9.0-beta.1` (branch `chore/release-0.9.0-beta.1`)
+
+- The owner approved merging #23 (roadmap) and #24 (pinned actions) and asked for a release version. The release
+  is the beta proposed in docs/roadmap.md 1.1, not 1.0: real phones, a real TV and real games are still untested.
+- Version set with `scripts/set-version.sh 0.9.0-beta.1`. The `[Unreleased]` changelog became the
+  `[0.9.0-beta.1]` section (the never-released 0.1.0 list folded into its Added list), with a note on what is
+  untested and that camera pointing in a running game waits for roadmap 1.2.
+- After merge: tag `v0.9.0-beta.1` on the merge commit. The Release workflow makes a draft pre-release; the owner
+  checks it with the hardware checklist (docs/release-1.0.md) and presses Publish.
+- **Next:** the owner's hardware pass, then the roadmap decisions.
+
 ## 2026-10-13: Pointer calibration (branch `feat/pointer-calibration`, PR #22)
 
 - **Protocol** (protocol 2, docs first): `calibrate` (phone → PC), `aim` with a stored point or `null`, and the

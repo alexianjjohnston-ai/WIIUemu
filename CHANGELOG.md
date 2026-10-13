@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0-beta.1] - 2026-10-13
+
+First beta. Every feature below is tested in CI and with simulated phones, but not yet on real phones, a real TV
+and real games: please report what works and what doesn't (see TESTING.md). Camera pointing currently needs the
+`/tracking` page on the TV, so it can't yet be used while a game is running (docs/roadmap.md, item 1.2).
+
 ### Added
 - **Pointer calibration** for camera pointing. Tap **Calibrate pointer** and aim at the cross in the middle of the
   TV page during a 3-second countdown. The PC measures where the phone's camera looks when the player aims at the
@@ -48,6 +54,24 @@ All notable changes to this project are documented here. The format follows
   - Adds your own game folders to Cemu, lists the games and launches them.
   - It never downloads games, keys or system files.
 - Single-file release: the phone app is compiled into `wiiu-connect` (no `web` folder).
+- `wiiu-dsu`: Cemuhook DSU protocol v1001 server, byte-compatible with Cemu's DSU client. Includes a Cemu-like
+  probe client.
+- `wiiu-controller`: Wii Remote and GamePad button tables, phone protocol v1 validation, input → DSU
+  conversion (pointer → touch point 1920×942), and a monotonic motion clock.
+- `wiiu-cemu`: Cemu controller profile generation for DSU-bound Wii Remotes.
+- `wiiu-connect`: session server with token pairing, QR pairing page, slot assignment, reconnect, staleness
+  watchdog, mouse pointer test page, and `cemu-profile` / `probe` commands.
+- macOS support: Cemu profile folder detection, macOS CI job, universal (arm64 + x86_64) release package.
+- Release workflow; `v*` tags create a draft GitHub release.
+- `apps/phone`: Wii Remote PWA (React + TypeScript). Authentic and comfort layouts, left-handed mode, button
+  size, multi-touch, haptics where supported, reconnect with backoff, release on hide/blur/disconnect, and
+  Playwright e2e tests against a mocked server.
+- Camera pointing (protocol v2): `wiiu-tracking` (pointing math, gyro fusion, tag rendering), vendored AprilTag
+  detector, a server tracking worker per Wii Remote, HTTPS for phones, the `/tracking` TV border page, and the
+  phone app's camera and gyro streaming with on-screen tracking feedback. Not yet tested on real phones.
+- CI for Rust (Linux and Windows), the phone app, and security scanning.
+- Documentation: architecture, protocol, research, tracking design, tools, compatibility, progress.
+- `docs/roadmap.md`: the plan for the rest of 1.0 and the features after it.
 
 ### Fixed
 - In left-handed mode, the camera status line covered the top of the B button. The camera lines now sit on the
@@ -69,6 +93,8 @@ All notable changes to this project are documented here. The format follows
   - `/tracking` shows tracking diagnostics per player.
 
 ### Security
+- Release and CI workflows pin every third-party GitHub Action to a full commit SHA, so a moved tag can't change
+  what a release build runs.
 - Server (QA review fixes):
   - Pad updates are published under the session lock, so a tracking worker can't leave a button held after a
     disconnect or watchdog release.
@@ -78,22 +104,3 @@ All notable changes to this project are documented here. The format follows
   - `--token` must be 16–128 URL-safe characters.
 - Phone app: production builds ignore the `?server=` URL override, so a crafted link can't send the pairing
   token to another host.
-
-### Added
-- `wiiu-dsu`: Cemuhook DSU protocol v1001 server, byte-compatible with Cemu's DSU client. Includes a Cemu-like
-  probe client.
-- `wiiu-controller`: Wii Remote and GamePad button tables, phone protocol v1 validation, input → DSU
-  conversion (pointer → touch point 1920×942), and a monotonic motion clock.
-- `wiiu-cemu`: Cemu controller profile generation for DSU-bound Wii Remotes.
-- `wiiu-connect`: session server with token pairing, QR pairing page, slot assignment, reconnect, staleness
-  watchdog, mouse pointer test page, and `cemu-profile` / `probe` commands.
-- macOS support: Cemu profile folder detection, macOS CI job, universal (arm64 + x86_64) release package.
-- Release workflow producing Windows and macOS zips; `v*` tags create a draft GitHub release.
-- `apps/phone`: Wii Remote PWA (React + TypeScript). Authentic and comfort layouts, left-handed mode, button
-  size, multi-touch, haptics where supported, reconnect with backoff, release on hide/blur/disconnect, and
-  Playwright e2e tests against a mocked server.
-- Camera pointing (protocol v2): `wiiu-tracking` (pointing math, gyro fusion, tag rendering), vendored AprilTag
-  detector, a server tracking worker per Wii Remote, HTTPS for phones, the `/tracking` TV border page, and the
-  phone app's camera and gyro streaming with on-screen tracking feedback. Not yet tested on real phones.
-- CI for Rust (Linux and Windows), the phone app, and security scanning.
-- Documentation: architecture, protocol, research, tracking design, tools, compatibility, progress.
