@@ -55,6 +55,9 @@ The Wii Remote screen has the same motion button for shaking and twisting.
 2. On the phone, tap the **camera icon** and allow camera and motion access.
 3. Hold the phone upright with its back camera facing the screen. A ring should follow your aim, and the phone
    shows "Aiming at the TV · N tags · N fps".
+4. **Calibrate once per phone:** tap **Calibrate pointer**, then aim at the cross in the middle of the `/tracking`
+   page during the 3-second countdown and hold still. The phone shows "Calibrated ✓" and remembers it; the ring
+   should now sit where you aim. **Recalibrate** or **Reset** appear while the PC sees the border.
 
 There's no in-game overlay yet. For a rough in-game try, place Cemu's window over the dark middle of the
 `/tracking` page without covering the markers.
@@ -62,5 +65,6 @@ There's no in-game overlay yet. For a rough in-game try, place Cemu's window ove
 ## What to report
 
 - Do the buttons work in-game? Does the pointer move the right way up and down?
-- Camera: the fps shown, how far the ring is from where you aim, and how laggy it feels.
+- Camera: the fps shown, how far the ring is from where you aim before and after calibrating, and how laggy it
+  feels.
 - Phone model and browser, and any error text from the phone or the server window.

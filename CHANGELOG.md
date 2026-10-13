@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Pointer calibration** for camera pointing. Tap **Calibrate pointer** and aim at the cross in the middle of the
+  TV page during a 3-second countdown. The PC measures where the phone's camera looks when the player aims at the
+  centre. The phone remembers it and sends it again on every connection; **Reset** goes back to the default.
+  Protocol: `calibrate`, `aim` and `calibration` messages (protocol 2).
 - **Phone GamePad** (phone 1, landscape):
   - shoulder buttons, both sticks, D-pad, ABXY, −/HOME/+ and L3/R3;
   - a 16:9 touchscreen that becomes Cemu's GamePad touch input.

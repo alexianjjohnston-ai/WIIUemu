@@ -2,8 +2,8 @@
 
 > **Status (2026-10-12):** pointing math, gyro fusion, tag rendering, the TV border page (`/tracking`), HTTPS for
 > phones, PC-side detection and the phone's camera and gyro streaming are implemented. They are tested
-> synthetically and with a simulated phone camera. Not built yet: the calibration UI and physical measurements
-> on real phones.
+> synthetically and with a simulated phone camera. The calibration UI is built (protocol messages `calibrate`,
+> `aim`, `calibration`). Not done yet: physical measurements on real phones.
 
 ## Important ergonomic constraint: camera orientation
 
@@ -148,8 +148,11 @@ own pointer, so players never share a cursor.
    screen plane.
 4. **Fusion.** Between camera frames, and while markers are lost, integrate the gyroscope to propagate the aim
    point. Each camera fix corrects the drift (complementary filter first, EKF if needed).
-5. **Calibration.** A one-time "aim at the centre and press A" step removes the camera-to-pointing-axis offset
-   for each phone model and grip, and is stored per device.
+5. **Calibration.** A one-time step removes the camera-to-pointing-axis offset: tap **Calibrate pointer**, aim at
+   the centre cross during a 3-second countdown, and the PC turns the next camera fix into the aim point
+   (`calibrate_aim_point`). The phone stores it (`localStorage`) and sends it as `aim` on every connection, since
+   it belongs to that phone's camera and grip. It is a countdown rather than "press A", so the game never sees the
+   button.
 6. **Fallbacks.** If markers stay lost for more than 300 ms, keep a gyro-only pointer for up to 2 s, then send
    `pointer: null`. Manual recentre: hold `B` and press `HOME`.
 
