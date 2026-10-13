@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Release packaging:**
+  - The Windows download is one self-contained `WiiUConnect-<version>-windows-x64.exe` with the C runtime linked
+    statically, an app icon, version information and an `asInvoker` manifest.
+  - Each release build is checked: the phone app is embedded, the exe runs alone in an empty folder (HTTP and
+    HTTPS), there are no runtime DLL dependencies, and the version matches the tag.
+  - Draft GitHub releases get notes from CHANGELOG.md and SHA256 checksums.
+  - `scripts/set-version.sh` and `docs/releasing.md`.
+- Startup:
+  - The version is shown in the console, on `--version` and on the setup page.
+  - Starting a second copy opens the running copy's setup page instead of failing.
+  - A port taken by another program gets a clear message.
+  - When Wii U Connect is started by double-click, an error keeps the window open until Enter.
 - **Setup page** (`/setup`, opens automatically on start; PC-only and CSRF-protected):
   - Downloads the official Cemu release (Windows zip, Linux AppImage) into a portable folder, or uses your existing
     Cemu.

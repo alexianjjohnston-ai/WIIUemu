@@ -5,9 +5,13 @@ with Dumpling on your own Wii U.
 
 ## 1. Start it
 
-- **Windows:** unzip `wiiu-connect-windows-x64.zip` and double-click `wiiu-connect.exe`. It's a single file. If
-  Windows asks about network access, allow it on private networks.
-- **macOS:** unzip `wiiu-connect-macos-universal.zip`, then in Terminal, in that folder:
+- **Windows:** double-click `WiiUConnect-<version>-windows-x64.exe`. It's a single file, with nothing to install
+  or unzip.
+  - If SmartScreen says "Windows protected your PC", click **More info → Run anyway** (the exe is not code-signed
+    yet).
+  - If Windows asks about network access, allow it on private networks.
+  - Starting it a second time just opens the setup page of the copy that is already running.
+- **macOS:** unzip `WiiUConnect-<version>-macos-universal.zip`, then in Terminal, in that folder:
   `xattr -d com.apple.quarantine wiiu-connect && ./wiiu-connect`. Allow incoming connections when asked.
 
 Keep the window open. The **setup page** opens in your browser. If it doesn't, go to `http://localhost:8737`.
