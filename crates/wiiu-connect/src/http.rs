@@ -145,14 +145,7 @@ async fn pair_page(
         return r;
     }
     let url = state.config.phone_url(state.sessions.token());
-    let svg = qrcode::QrCode::new(url.as_bytes())
-        .map(|code| {
-            code.render::<qrcode::render::svg::Color<'_>>()
-                .min_dimensions(240, 240)
-                .quiet_zone(true)
-                .build()
-        })
-        .unwrap_or_default();
+    let svg = qr_svg(&url);
     let html = include_str!("../web/pair.html")
         .replace("{{QR_SVG}}", &svg)
         .replace("{{PHONE_URL}}", &html_escape(&url));
@@ -242,6 +235,18 @@ async fn no_web_app() -> Html<&'static str> {
          <p>The phone app is not built yet. Run <code>npm ci &amp;&amp; npm run build</code> in <code>apps/phone</code>, \
          or pass <code>--web-dir</code>.</p>",
     )
+}
+
+/// QR code for `text` as an SVG document (empty when the text is too long for a QR code).
+pub(crate) fn qr_svg(text: &str) -> String {
+    qrcode::QrCode::new(text.as_bytes())
+        .map(|code| {
+            code.render::<qrcode::render::svg::Color<'_>>()
+                .min_dimensions(240, 240)
+                .quiet_zone(true)
+                .build()
+        })
+        .unwrap_or_default()
 }
 
 fn html_escape(s: &str) -> String {

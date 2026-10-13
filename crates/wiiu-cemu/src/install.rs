@@ -179,29 +179,63 @@ fn load_settings(path: &Path) -> Result<xmltree::Element, SettingsError> {
 /// other setting with its defaults). Returns `false` if the folder was already listed.
 pub fn add_game_path(install: &CemuInstall, folder: &Path) -> Result<bool, SettingsError> {
     let folder = folder.to_str().ok_or(SettingsError::NotUtf8)?.to_string();
+    edit_settings(install, |root| {
+        if root.get_child("GamePaths").is_none() {
+            root.children
+                .push(xmltree::XMLNode::Element(xmltree::Element::new("GamePaths")));
+        }
+        let game_paths = root.get_mut_child("GamePaths").expect("just ensured");
+        let exists = game_paths
+            .children
+            .iter()
+            .filter_map(|c| c.as_element())
+            .any(|e| e.name == "Entry" && e.get_text().is_some_and(|t| t == folder));
+        if exists {
+            return false;
+        }
+        let mut entry = xmltree::Element::new("Entry");
+        entry.children.push(xmltree::XMLNode::Text(folder));
+        game_paths.children.push(xmltree::XMLNode::Element(entry));
+        true
+    })
+}
+
+/// Makes Cemu open its separate "GamePad View" window on start (`<open_pad>` under `<content>`, the GUI setting
+/// behind *View → Separate GamePad view*; Cemu commit `21878f1`, `wxCemuConfig.cpp`). The phone GamePad shows
+/// that window's picture. Returns whether `settings.xml` changed.
+pub fn enable_gamepad_window(install: &CemuInstall) -> Result<bool, SettingsError> {
+    edit_settings(install, |root| {
+        if root
+            .get_child("open_pad")
+            .and_then(|e| e.get_text())
+            .is_some_and(|t| t.trim() == "true")
+        {
+            return false;
+        }
+        root.children
+            .retain(|c| c.as_element().is_none_or(|e| e.name != "open_pad"));
+        let mut e = xmltree::Element::new("open_pad");
+        e.children.push(xmltree::XMLNode::Text("true".into()));
+        root.children.push(xmltree::XMLNode::Element(e));
+        true
+    })
+}
+
+/// Applies `edit` to Cemu's `settings.xml` (creating a minimal one when missing) and writes it back atomically if
+/// `edit` reports a change. A file that isn't valid XML is never touched.
+fn edit_settings(
+    install: &CemuInstall,
+    edit: impl FnOnce(&mut xmltree::Element) -> bool,
+) -> Result<bool, SettingsError> {
     let path = install.settings_path();
     let mut root = if path.exists() {
         load_settings(&path)?
     } else {
         xmltree::Element::new("content")
     };
-    if root.get_child("GamePaths").is_none() {
-        root.children
-            .push(xmltree::XMLNode::Element(xmltree::Element::new("GamePaths")));
-    }
-    let game_paths = root.get_mut_child("GamePaths").expect("just ensured");
-    let exists = game_paths
-        .children
-        .iter()
-        .filter_map(|c| c.as_element())
-        .any(|e| e.name == "Entry" && e.get_text().is_some_and(|t| t == folder));
-    if exists {
+    if !edit(&mut root) {
         return Ok(false);
     }
-    let mut entry = xmltree::Element::new("Entry");
-    entry.children.push(xmltree::XMLNode::Text(folder));
-    game_paths.children.push(xmltree::XMLNode::Element(entry));
-
     fs::create_dir_all(&install.config_dir)?;
     let mut out = Vec::new();
     root.write_with_config(
@@ -213,6 +247,73 @@ pub fn add_game_path(install: &CemuInstall, folder: &Path) -> Result<bool, Setti
     fs::write(&tmp, out)?;
     fs::rename(&tmp, &path)?;
     Ok(true)
+}
+
+/// Where Cemu's own installer puts it, so an installed Cemu is found without asking. Windows: `%LOCALAPPDATA%\Cemu`
+/// (`InstallDir` in Cemu's `src/resource/installer.nsi`, commit `21878f1`). macOS: `/Applications` (`Cemu.app`).
+pub fn installed_cemu_dirs(platform: Platform, env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Vec<PathBuf> {
+    match platform {
+        Platform::Windows => env("LOCALAPPDATA")
+            .map(|d| PathBuf::from(d).join("Cemu"))
+            .into_iter()
+            .collect(),
+        Platform::MacOs => vec![PathBuf::from("/Applications")],
+        Platform::Linux => Vec::new(),
+    }
+}
+
+/// Folders worth searching for the user's own game dumps: the usual user folders, plus top-level folders on other
+/// drives whose names suggest games (Windows). Only names are read while searching.
+pub fn game_search_roots(platform: Platform, env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Vec<PathBuf> {
+    let home = match platform {
+        Platform::Windows => env("USERPROFILE"),
+        _ => env("HOME"),
+    }
+    .map(PathBuf::from);
+    let mut roots: Vec<PathBuf> = home
+        .iter()
+        .flat_map(|h| ["Downloads", "Documents", "Desktop", "Games", "Videos"].map(|d| h.join(d)))
+        .collect();
+    if platform == Platform::Windows {
+        let looks_like_games = |name: &str| {
+            let n = name.to_ascii_lowercase().replace([' ', '-', '_'], "");
+            ["wiiu", "games", "roms", "cemu", "emulat", "dumps"]
+                .iter()
+                .any(|k| n.contains(k))
+        };
+        for letter in b'C'..=b'Z' {
+            let drive = PathBuf::from(format!("{}:\\", letter as char));
+            let Ok(entries) = fs::read_dir(&drive) else { continue };
+            roots.extend(
+                entries
+                    .flatten()
+                    .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+                    .filter(|e| e.file_name().to_str().is_some_and(looks_like_games))
+                    .map(|e| e.path()),
+            );
+        }
+    }
+    roots.retain(|r| r.is_dir());
+    roots
+}
+
+/// The folders holding the games found under `roots`: the folder that contains each game file or unpacked game,
+/// without folders nested inside another found folder (Cemu searches game folders recursively).
+pub fn discover_game_folders(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut folders: Vec<PathBuf> = roots
+        .iter()
+        .flat_map(|r| scan_games(r))
+        .filter_map(|g| match g.kind {
+            // <folder>/<game>/code/<title>.rpx
+            "folder" => g.path.ancestors().nth(3).map(Path::to_path_buf),
+            _ => g.path.parent().map(Path::to_path_buf),
+        })
+        .collect();
+    folders.sort();
+    folders.dedup();
+    let all = folders.clone();
+    folders.retain(|f| !all.iter().any(|other| other != f && f.starts_with(other)));
+    folders
 }
 
 /// A game found in one of the user's game folders.
@@ -346,6 +447,74 @@ mod tests {
         fs::write(t.0.join("Cemu.exe"), b"MZ").unwrap();
         fs::create_dir_all(t.0.join("portable")).unwrap();
         CemuInstall::find(&t.0, Platform::Windows, &no_env).unwrap()
+    }
+
+    #[test]
+    fn gamepad_window_setting_is_added_once_and_keeps_other_settings() {
+        let t = TempDir::new("openpad");
+        let i = portable_windows_install(&t);
+        // No settings.xml yet: a minimal one is created (Cemu then also skips its first-run dialog).
+        assert!(enable_gamepad_window(&i).unwrap());
+        assert!(!enable_gamepad_window(&i).unwrap(), "second call changes nothing");
+        assert!(add_game_path(&i, Path::new("D:/Games")).unwrap());
+        // A user who turned it off again in Cemu gets it back on, other settings untouched.
+        let xml = fs::read_to_string(i.settings_path())
+            .unwrap()
+            .replace(">true<", ">false<");
+        fs::write(i.settings_path(), xml).unwrap();
+        assert!(enable_gamepad_window(&i).unwrap());
+        let xml = fs::read_to_string(i.settings_path()).unwrap();
+        let doc = roxmltree::Document::parse(&xml).unwrap();
+        let root = doc.root_element();
+        assert_eq!(root.tag_name().name(), "content");
+        let pads: Vec<_> = root.children().filter(|n| n.has_tag_name("open_pad")).collect();
+        assert_eq!(pads.len(), 1);
+        assert_eq!(pads[0].text(), Some("true"));
+        assert_eq!(game_paths(&i).unwrap(), vec!["D:/Games"]);
+    }
+
+    #[test]
+    fn discovers_the_folders_that_hold_games() {
+        let t = TempDir::new("discover");
+        let downloads = t.0.join("Downloads");
+        let wiiu = downloads.join("Wii U");
+        fs::create_dir_all(wiiu.join("Mario Kart 8 [AMKP01]/code")).unwrap();
+        fs::create_dir_all(wiiu.join("Mario Kart 8 [AMKP01]/meta")).unwrap();
+        fs::write(wiiu.join("Mario Kart 8 [AMKP01]/code/Turbo.rpx"), b"").unwrap();
+        fs::write(wiiu.join("Mario Kart 8 [AMKP01]/meta/meta.xml"), "<menu/>").unwrap();
+        fs::write(wiiu.join("Splatoon.wua"), b"").unwrap();
+        fs::create_dir_all(wiiu.join("more")).unwrap();
+        fs::write(wiiu.join("more/Pikmin 3.wux"), b"").unwrap();
+        fs::write(downloads.join("holiday.iso.txt"), b"").unwrap();
+        let docs = t.0.join("Documents");
+        fs::create_dir_all(&docs).unwrap();
+        fs::write(docs.join("notes.txt"), b"").unwrap();
+        // "more" is inside "Wii U" (Cemu searches recursively), so only "Wii U" is added.
+        assert_eq!(discover_game_folders(&[downloads, docs]), vec![wiiu]);
+    }
+
+    #[test]
+    fn search_roots_are_the_usual_user_folders() {
+        let t = TempDir::new("roots");
+        fs::create_dir_all(t.0.join("Downloads")).unwrap();
+        fs::create_dir_all(t.0.join("Games")).unwrap();
+        let home = t.0.clone();
+        let env = move |k: &str| (k == "HOME").then(|| home.clone().into_os_string());
+        assert_eq!(
+            game_search_roots(Platform::Linux, &env),
+            vec![t.0.join("Downloads"), t.0.join("Games")],
+            "missing folders are left out"
+        );
+    }
+
+    #[test]
+    fn installer_location_is_localappdata_on_windows() {
+        let env = |k: &str| (k == "LOCALAPPDATA").then(|| std::ffi::OsString::from("C:/Users/me/AppData/Local"));
+        assert_eq!(
+            installed_cemu_dirs(Platform::Windows, &env),
+            vec![PathBuf::from("C:/Users/me/AppData/Local").join("Cemu")]
+        );
+        assert!(installed_cemu_dirs(Platform::Linux, &env).is_empty());
     }
 
     #[test]

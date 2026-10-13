@@ -16,6 +16,7 @@ async fn server(data_dir: &Path) -> (Running, tokio::sync::watch::Sender<bool>) 
             embedded_web: false,
             setup: Some(wiiu_connect::setup::SetupConfig {
                 data_dir: data_dir.to_path_buf(),
+                auto: false,
             }),
             allowed_origins: vec![],
             public_host: None,

@@ -23,6 +23,8 @@ const MAX_DOWNLOAD_BYTES: u64 = 400 * 1024 * 1024;
 pub struct SetupConfig {
     /// Wii U Connect's data folder; the managed Cemu goes to `<data_dir>/Cemu`.
     pub data_dir: PathBuf,
+    /// Run [`Setup::start_auto_setup`] when the server starts.
+    pub auto: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -47,8 +49,14 @@ pub enum DownloadState {
     },
 }
 
+type EnvLookup = dyn Fn(&str) -> Option<std::ffi::OsString> + Send + Sync;
+
 pub struct Setup {
     cfg: SetupConfig,
+    /// Environment variable lookup (replaced in tests).
+    env: Box<EnvLookup>,
+    /// Progress of the automatic setup, shown at the top of the setup page.
+    auto: Mutex<Vec<AutoStep>>,
     platform: Platform,
     /// Where Cemu reaches our DSU server; written into the controller profiles.
     dsu: SocketAddrV4,
@@ -60,10 +68,46 @@ pub struct Setup {
     scanning: Mutex<()>,
 }
 
+/// One step of the automatic setup.
+#[derive(Debug, Clone, Serialize)]
+pub struct AutoStep {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub state: StepState,
+    /// What happened, for the user ("Downloaded Cemu 2.6", "Found 3 games in D:\\Wii U").
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepState {
+    Pending,
+    Running,
+    Done,
+    /// Nothing to do, or the user has to do it (e.g. no games found yet).
+    Skipped,
+    Failed,
+}
+
+const AUTO_STEPS: [(&str, &str); 4] = [
+    ("cemu", "Get Cemu"),
+    ("controllers", "Connect Cemu's controllers to the phones"),
+    ("gamepad_window", "Open Cemu's GamePad window"),
+    ("games", "Find your games"),
+];
+
 struct GameScan {
     dirs: Vec<String>,
     games: Vec<GameEntry>,
     at: Instant,
+}
+
+fn games_word(n: usize) -> String {
+    if n == 1 {
+        "1 game".into()
+    } else {
+        format!("{n} games")
+    }
 }
 
 /// How long a game scan is reused when the game folders haven't changed.
@@ -102,6 +146,8 @@ pub struct SetupStatus {
     pub game_dirs: Vec<String>,
     pub games: Vec<GameEntry>,
     pub download: DownloadState,
+    /// Automatic setup progress (empty when it is off).
+    pub auto: Vec<AutoStep>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -141,6 +187,8 @@ impl Setup {
             .unwrap_or_default();
         Arc::new(Self {
             cfg,
+            env: Box::new(|k| std::env::var_os(k)),
+            auto: Mutex::new(Vec::new()),
             platform: Platform::current(),
             dsu: cemu_dsu_endpoint(dsu),
             saved: Mutex::new(saved),
@@ -161,8 +209,18 @@ impl Setup {
         std::fs::write(self.cfg.data_dir.join("setup.json"), data)
     }
 
-    fn env(k: &str) -> Option<std::ffi::OsString> {
-        std::env::var_os(k)
+    fn env(&self, k: &str) -> Option<std::ffi::OsString> {
+        (self.env)(k)
+    }
+
+    /// For tests: read "environment variables" (home folder, `LOCALAPPDATA`, …) from `env` instead.
+    #[cfg(test)]
+    fn with_env(
+        mut self: Arc<Self>,
+        env: impl Fn(&str) -> Option<std::ffi::OsString> + Send + Sync + 'static,
+    ) -> Arc<Self> {
+        Arc::get_mut(&mut self).expect("not shared yet").env = Box::new(env);
+        self
     }
 
     /// The Cemu in use: the one the user located, else the managed one if installed.
@@ -171,7 +229,7 @@ impl Setup {
         chosen
             .into_iter()
             .chain([self.managed_dir()])
-            .find_map(|d| CemuInstall::find(&d, self.platform, &Self::env))
+            .find_map(|d| CemuInstall::find(&d, self.platform, &|k| self.env(k)))
     }
 
     pub fn status(&self) -> SetupStatus {
@@ -201,6 +259,7 @@ impl Setup {
             game_dirs,
             games,
             download: self.download.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+            auto: self.auto.lock().unwrap_or_else(|e| e.into_inner()).clone(),
         }
     }
 
@@ -233,10 +292,165 @@ impl Setup {
         *self.games.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
+    /// Whether [`SetupConfig::auto`] asks for the automatic setup.
+    pub fn auto_enabled(&self) -> bool {
+        self.cfg.auto
+    }
+
+    /// Does everything the setup page offers, in the background, without asking: use an existing Cemu or install
+    /// the official one, point Cemu's controllers at the phones (backing up the user's own), open Cemu's GamePad
+    /// window, and add the folders that hold the user's own games. Each step's result is shown on the setup page;
+    /// whatever fails or finds nothing is left for the user to do there.
+    pub fn start_auto_setup(self: &Arc<Self>) {
+        *self.auto.lock().unwrap_or_else(|e| e.into_inner()) = AUTO_STEPS
+            .iter()
+            .map(|&(id, title)| AutoStep {
+                id,
+                title,
+                state: StepState::Pending,
+                detail: None,
+            })
+            .collect();
+        let this = self.clone();
+        let spawned = std::thread::Builder::new()
+            .name("auto-setup".into())
+            .spawn(move || this.run_auto_setup());
+        if let Err(e) = spawned {
+            tracing::warn!("could not start the automatic setup: {e}");
+        }
+    }
+
+    fn set_step(&self, id: &str, state: StepState, detail: Option<String>) {
+        let mut steps = self.auto.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(step) = steps.iter_mut().find(|s| s.id == id) {
+            step.state = state;
+            step.detail = detail;
+        }
+    }
+
+    fn run_auto_setup(self: &Arc<Self>) {
+        let step = |id: &str, f: &dyn Fn() -> Result<(StepState, String), SetupError>| {
+            self.set_step(id, StepState::Running, None);
+            match f() {
+                Ok((state, detail)) => self.set_step(id, state, Some(detail)),
+                Err(e) => {
+                    tracing::warn!("automatic setup, {id}: {e}");
+                    self.set_step(id, StepState::Failed, Some(e.to_string()));
+                }
+            }
+        };
+        step("cemu", &|| self.auto_cemu());
+        if self.install().is_none() {
+            for (id, _) in &AUTO_STEPS[1..] {
+                self.set_step(id, StepState::Skipped, Some("Needs Cemu first".into()));
+            }
+            return;
+        }
+        step("controllers", &|| {
+            let install = self.install().ok_or(SetupError::NoCemu)?;
+            if install::wiimotes_assigned(&install, self.dsu) {
+                return Ok((StepState::Done, "Already set up".into()));
+            }
+            let report = install::assign_wiimotes(&install, self.dsu)?;
+            let detail = if report.backups.is_empty() {
+                "Controllers 2–4 are the phone Wii Remotes".to_string()
+            } else {
+                format!(
+                    "Done; your previous settings were backed up ({} files)",
+                    report.backups.len()
+                )
+            };
+            Ok((StepState::Done, detail))
+        });
+        step("gamepad_window", &|| {
+            let install = self.install().ok_or(SetupError::NoCemu)?;
+            let changed = install::enable_gamepad_window(&install)?;
+            Ok((
+                StepState::Done,
+                if changed {
+                    "It opens when Cemu starts"
+                } else {
+                    "Already on"
+                }
+                .into(),
+            ))
+        });
+        step("games", &|| self.auto_games());
+    }
+
+    fn auto_cemu(self: &Arc<Self>) -> Result<(StepState, String), SetupError> {
+        if let Some(install) = self.install() {
+            return Ok((StepState::Done, format!("Using Cemu in {}", install.dir.display())));
+        }
+        // Installed with Cemu's own installer?
+        for dir in install::installed_cemu_dirs(self.platform, &|k| self.env(k)) {
+            if CemuInstall::find(&dir, self.platform, &|k| self.env(k)).is_some() {
+                let found = self.locate(&dir)?;
+                return Ok((
+                    StepState::Done,
+                    format!("Using your installed Cemu in {}", found.dir.display()),
+                ));
+            }
+        }
+        if !matches!(self.platform, Platform::Windows | Platform::Linux) {
+            return Ok((
+                StepState::Skipped,
+                "Install Cemu from its website, then choose it below".into(),
+            ));
+        }
+        match self.start_download() {
+            Ok(()) | Err(SetupError::Busy) => {}
+            Err(e) => return Err(e),
+        }
+        loop {
+            std::thread::sleep(Duration::from_millis(300));
+            let state = self.download.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            match state {
+                DownloadState::Running { .. } => continue,
+                DownloadState::Done { version } => {
+                    return Ok((StepState::Done, format!("Installed the official Cemu {version}")))
+                }
+                DownloadState::Failed { error } => return Err(SetupError::Other(error)),
+                DownloadState::Idle => return Err(SetupError::Other("the download stopped".into())),
+            }
+        }
+    }
+
+    fn auto_games(&self) -> Result<(StepState, String), SetupError> {
+        let install = self.install().ok_or(SetupError::NoCemu)?;
+        let existing = install::game_paths(&install)?;
+        if !existing.is_empty() {
+            let count = self.games_in(&existing).len();
+            return Ok((
+                StepState::Done,
+                format!("{} in your Cemu game folders", games_word(count)),
+            ));
+        }
+        let roots = install::game_search_roots(self.platform, &|k| self.env(k));
+        let folders = install::discover_game_folders(&roots);
+        if folders.is_empty() {
+            return Ok((
+                StepState::Skipped,
+                "No games found in the usual folders. Add the folder with your game dumps below.".into(),
+            ));
+        }
+        for folder in &folders {
+            install::add_game_path(&install, folder)?;
+        }
+        self.forget_games();
+        let dirs = install::game_paths(&install)?;
+        let count = self.games_in(&dirs).len();
+        let names: Vec<String> = folders.iter().map(|f| f.display().to_string()).collect();
+        Ok((
+            StepState::Done,
+            format!("Found {} in {}", games_word(count), names.join(", ")),
+        ))
+    }
+
     /// Uses an existing Cemu in `dir` (the folder with `Cemu.exe`, or `Cemu.app` on macOS).
     pub fn locate(&self, dir: &Path) -> Result<CemuStatus, SetupError> {
-        let install =
-            CemuInstall::find(dir, self.platform, &Self::env).ok_or_else(|| SetupError::NotCemu(dir.to_path_buf()))?;
+        let install = CemuInstall::find(dir, self.platform, &|k| self.env(k))
+            .ok_or_else(|| SetupError::NotCemu(dir.to_path_buf()))?;
         self.saved.lock().unwrap_or_else(|e| e.into_inner()).cemu_dir = Some(install.dir.clone());
         self.save()?;
         // A Cemu is set up now; an earlier failed download is no longer relevant.
@@ -405,7 +619,7 @@ impl Setup {
         }
         self.save()?;
         // A fresh managed install has no controller setup yet: point Controllers 2–4 at the phones.
-        let install = CemuInstall::find(&target, self.platform, &Self::env).ok_or(SetupError::NotCemu(target))?;
+        let install = CemuInstall::find(&target, self.platform, &|k| self.env(k)).ok_or(SetupError::NotCemu(target))?;
         install::assign_wiimotes(&install, self.dsu)?;
         Ok(asset.tag)
     }
@@ -883,7 +1097,13 @@ mod tests {
         let games = d.join("games");
         std::fs::create_dir_all(&games).unwrap();
         std::fs::write(games.join("One.wua"), b"").unwrap();
-        let setup = Setup::new(SetupConfig { data_dir: d.clone() }, "127.0.0.1:26760".parse().unwrap());
+        let setup = Setup::new(
+            SetupConfig {
+                data_dir: d.clone(),
+                auto: false,
+            },
+            "127.0.0.1:26760".parse().unwrap(),
+        );
         let dirs = vec![games.to_string_lossy().into_owned()];
         assert_eq!(setup.games_in(&dirs).len(), 1);
         std::fs::write(games.join("Two.wua"), b"").unwrap();
@@ -904,9 +1124,80 @@ mod tests {
     }
 
     #[test]
+    fn automatic_setup_does_every_step_without_asking() {
+        let d = temp("auto");
+        // An existing Cemu (Linux AppImage layout, since tests run on the build platform) with portable settings.
+        let cemu = d.join("MyCemu");
+        std::fs::create_dir_all(cemu.join("portable")).unwrap();
+        std::fs::write(cemu.join("Cemu-2.6-x86_64.AppImage"), b"").unwrap();
+        // The user's own game in Downloads.
+        let home = d.join("home");
+        let games = home.join("Downloads").join("Wii U");
+        std::fs::create_dir_all(&games).unwrap();
+        std::fs::write(games.join("Splatoon.wua"), b"").unwrap();
+        let env_home = home.clone();
+        let setup = Setup::new(
+            SetupConfig {
+                data_dir: d.join("data"),
+                auto: true,
+            },
+            "127.0.0.1:26760".parse().unwrap(),
+        )
+        .with_env(move |k| (k == "HOME" || k == "USERPROFILE").then(|| env_home.clone().into_os_string()));
+        if Platform::current() != Platform::Linux {
+            return; // the fake Cemu above uses the Linux layout
+        }
+        setup.locate(&cemu).unwrap();
+
+        let finished = |setup: &Arc<Setup>| {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                let steps = setup.status().auto;
+                if steps
+                    .iter()
+                    .all(|s| !matches!(s.state, StepState::Pending | StepState::Running))
+                {
+                    return steps;
+                }
+                assert!(Instant::now() < deadline, "automatic setup did not finish: {steps:?}");
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        setup.start_auto_setup();
+        let steps = finished(&setup);
+        for s in &steps {
+            assert_eq!(s.state, StepState::Done, "{s:?}");
+        }
+        let detail = |id: &str| steps.iter().find(|s| s.id == id).unwrap().detail.clone().unwrap();
+        assert!(detail("games").starts_with("Found 1 game in"), "{}", detail("games"));
+        let status = setup.status();
+        assert!(status.controllers_assigned);
+        assert_eq!(status.game_dirs, vec![games.to_string_lossy().into_owned()]);
+        assert_eq!(status.games.len(), 1);
+        let settings = std::fs::read_to_string(cemu.join("portable/settings.xml")).unwrap();
+        assert!(settings.contains("<open_pad>true</open_pad>"), "{settings}");
+
+        // Running again finds everything in place.
+        setup.start_auto_setup();
+        let again = finished(&setup);
+        assert!(again.iter().all(|s| s.state == StepState::Done));
+        assert_eq!(
+            again.iter().find(|s| s.id == "controllers").unwrap().detail.as_deref(),
+            Some("Already set up")
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn launch_refuses_paths_that_are_not_scanned_games() {
         let d = temp("launch");
-        let setup = Setup::new(SetupConfig { data_dir: d.clone() }, "127.0.0.1:26760".parse().unwrap());
+        let setup = Setup::new(
+            SetupConfig {
+                data_dir: d.clone(),
+                auto: false,
+            },
+            "127.0.0.1:26760".parse().unwrap(),
+        );
         assert!(matches!(setup.launch(None, false), Err(SetupError::NoCemu)));
         let _ = std::fs::remove_dir_all(&d);
     }

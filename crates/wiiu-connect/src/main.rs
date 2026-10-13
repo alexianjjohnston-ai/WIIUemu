@@ -67,6 +67,10 @@ struct ServeArgs {
     /// Disable the setup page (Cemu download and configuration).
     #[arg(long)]
     no_setup: bool,
+    /// Don't set things up automatically on start (getting Cemu, controllers, GamePad window, finding games);
+    /// everything stays available as buttons on the setup page.
+    #[arg(long)]
+    no_auto_setup: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -181,6 +185,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             embedded_web: true,
             setup: (!args.no_setup).then(|| wiiu_connect::setup::SetupConfig {
                 data_dir: data_dir.clone(),
+                auto: !args.no_auto_setup,
             }),
             allowed_origins: args.allowed_origins,
             public_host: args.public_host,
