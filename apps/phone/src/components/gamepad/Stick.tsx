@@ -1,5 +1,6 @@
 import { useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { stickValue } from '../../input/analog';
+import { createStickEdge, stickValue } from '../../input/analog';
+import { haptic } from '../../lib/haptics';
 import type { InputEngine, StickName } from '../../input/engine';
 import type { GamepadButton, Vec2 } from '../../protocol/types';
 
@@ -17,16 +18,19 @@ export function Stick({ engine, which, label }: Props) {
   const [knob, setKnob] = useState<Vec2>({ x: 0, y: 0 });
   const handlers = useMemo(() => {
     let active: number | null = null;
+    const edge = createStickEdge();
     const update = (e: ReactPointerEvent<HTMLElement>) => {
       const rect = e.currentTarget.getBoundingClientRect();
       const radius = (Math.min(rect.width, rect.height) / 2) * TRAVEL;
       const v = stickValue(e.clientX - (rect.left + rect.width / 2), e.clientY - (rect.top + rect.height / 2), radius);
       engine.setStick(which, v);
       setKnob(v);
+      if (edge.update(v)) haptic('stickEdge');
     };
     const end = (e: ReactPointerEvent<HTMLElement>) => {
       if (e.pointerId !== active) return;
       active = null;
+      edge.update({ x: 0, y: 0 });
       engine.setStick(which, { x: 0, y: 0 });
       setKnob({ x: 0, y: 0 });
     };

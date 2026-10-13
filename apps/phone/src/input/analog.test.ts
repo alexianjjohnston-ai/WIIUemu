@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STICK_DEADZONE, stickValue, touchPosition } from './analog';
+import { STICK_DEADZONE, createStickEdge, stickValue, touchPosition } from './analog';
 
 describe('stickValue', () => {
   it('is centred inside the dead zone', () => {
@@ -51,5 +51,24 @@ describe('touchPosition', () => {
 
   it('returns null for an empty area', () => {
     expect(touchPosition(1, 1, { left: 0, top: 0, width: 0, height: 10 })).toBeNull();
+  });
+});
+
+describe('stick edge detector', () => {
+  const at = (len: number) => ({ x: len, y: 0 });
+  const run = (lens: number[]) => {
+    const edge = createStickEdge();
+    return lens.map((l) => edge.update(at(l)));
+  };
+
+  it('fires once when the stick reaches the rim, also when pushed there slowly', () => {
+    expect(run([0.5, 0.99, 1])).toEqual([false, true, false]);
+    expect(run([0.85, 0.92, 0.95, 0.99])).toEqual([false, false, false, true]);
+    const edge = createStickEdge();
+    expect(edge.update({ x: 0.71, y: 0.71 })).toBe(true);
+  });
+
+  it('needs the stick to come back in before firing again, so a wobbling thumb does not buzz', () => {
+    expect(run([1, 0.93, 1, 0.8, 1])).toEqual([true, false, false, false, true]);
   });
 });

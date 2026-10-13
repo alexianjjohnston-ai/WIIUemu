@@ -2,6 +2,21 @@
 
 Hand-off notes for the next session. Newest first.
 
+## 2026-10-13: Haptic feedback (branch `feat/haptics`)
+
+- The owner asked for haptics and approved the design: iPhone support, more events and an Off / Light / Strong
+  setting. Phone app only; no protocol change.
+- `lib/haptics.ts`: events (`press`, `dpad`, `stickEdge`, `connected`, `lost`, `calibrated`, `failed`) map to
+  vibration patterns per strength. Backends: `navigator.vibrate`, else the iOS 18 switch trick (a hidden
+  `<input type="checkbox" switch>` whose label is clicked; one tick per pulse). Detection is by feature, not
+  user agent.
+- Connection and calibration buzz through `useHapticTransition` and pure `connectionHapticEvent` /
+  `calibrationHapticEvent`. Sticks use `createStickEdge` (fires at 97 % travel, re-arms below 90 %).
+- Tests: unit tests for patterns, transitions, the stick edge and settings; 6 e2e tests with a recorded
+  `navigator.vibrate` and a simulated iOS switch.
+- **Unverified:** how it feels on real phones, and whether iOS ticks from a pointerdown without a full tap
+  (the switch trick is undocumented Safari behaviour).
+
 ## 2026-10-13: Releases without a tag push (branch `ci/release-from-workflow`)
 
 - Pushing `v0.9.0-beta.1` from the session failed (HTTP 403 on tag pushes), and the owner works from a phone. The

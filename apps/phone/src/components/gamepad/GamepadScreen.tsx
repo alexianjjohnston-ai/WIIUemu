@@ -1,5 +1,9 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useHapticTransition } from '../../hooks/useHapticTransition';
+import { useSettings } from '../../hooks/useSettings';
 import { useWakeLock } from '../../hooks/useWakeLock';
+import { connectionHapticEvent } from '../../lib/haptics';
+import { HapticsSetting } from '../HapticsSetting';
 import type { GamepadButton } from '../../protocol/types';
 import { GamepadSession, type GamepadSessionConfig } from '../../session/GamepadSession';
 import { MotionButton, motionNotice } from '../MotionControls';
@@ -30,6 +34,7 @@ export function GamepadScreen({ config, onLeave }: Props) {
   const state = useSyncExternalStore(session.connection.subscribe, session.connection.getState);
   const motion = useSyncExternalStore(session.motion.subscribe, session.motion.getStatus);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [settings, updateSettings] = useSettings();
   const engine = session.engine;
 
   useEffect(() => {
@@ -40,6 +45,7 @@ export function GamepadScreen({ config, onLeave }: Props) {
   }, [session]);
 
   useWakeLock(true);
+  useHapticTransition(state, connectionHapticEvent);
 
   const notice = motionNotice(motion);
   return (
@@ -161,6 +167,12 @@ export function GamepadScreen({ config, onLeave }: Props) {
               Motion: {motion === 'on' ? 'on' : 'off'}. Tilt and turn the phone to aim in games that use the GamePad
               gyro.
             </p>
+            <HapticsSetting
+              value={settings.haptics}
+              onChange={(haptics) => {
+                updateSettings({ haptics });
+              }}
+            />
             <button type="button" className="btn btn--danger btn--block" onClick={onLeave}>
               Disconnect
             </button>

@@ -565,6 +565,14 @@
   gap: 0.6rem;
 }
 
+.segmented--compact {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.segmented--compact .segment {
+  text-align: center;
+}
+
 /* ---- animation ---------------------------------------------------------------------------------- */
 
 @keyframes blink {

@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { HapticsSetting } from '../HapticsSetting';
 import { SCALE_MAX, SCALE_MIN, SCALE_STEP, type LayoutName, type Settings } from '../../lib/settings';
 
 interface Props {
@@ -87,6 +88,13 @@ export function SettingsSheet({ settings, onChange, onClose, onLeave }: Props) {
             }}
           />
         </div>
+
+        <HapticsSetting
+          value={settings.haptics}
+          onChange={(haptics) => {
+            onChange({ haptics });
+          }}
+        />
 
         <button type="button" className="btn btn--danger btn--block" onClick={onLeave}>
           Disconnect

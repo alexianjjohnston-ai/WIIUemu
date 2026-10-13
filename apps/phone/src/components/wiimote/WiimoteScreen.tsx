@@ -1,5 +1,8 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react';
+import { useHapticTransition } from '../../hooks/useHapticTransition';
 import { useSettings } from '../../hooks/useSettings';
+import { calibrationHapticEvent, connectionHapticEvent } from '../../lib/haptics';
+import type { CalibrationStatus } from '../../tracking/CameraPointer';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { ControllerSession, type SessionConfig } from '../../session/ControllerSession';
 import { cameraPointingSupported } from '../../tracking/camera';
@@ -10,6 +13,8 @@ import { ConnectionNotice } from './ConnectionNotice';
 import { RemoteBody, type LinkStatus } from './RemoteBody';
 import { SettingsSheet } from './SettingsSheet';
 import { StatusBar } from './StatusBar';
+
+const NOT_CALIBRATING: CalibrationStatus = { status: 'none' };
 
 interface Props {
   config: SessionConfig;
@@ -35,6 +40,8 @@ export function WiimoteScreen({ config, onLeave }: Props) {
   }, [session]);
 
   useWakeLock(true);
+  useHapticTransition(state, connectionHapticEvent);
+  useHapticTransition(camera.status === 'on' ? camera.calibration : NOT_CALIBRATING, calibrationHapticEvent);
 
   // A protocol 1 PC can't take camera frames: if the camera was switched on while connecting, turn it off
   // (its toggle is hidden for such PCs).

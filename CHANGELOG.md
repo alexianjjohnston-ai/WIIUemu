@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Haptic feedback** on both controllers, with a **Vibration: Off / Light / Strong** setting (Wii Remote settings
+  and the GamePad menu):
+  - buzzes on button presses, D-pad directions, a stick reaching its rim, connecting, a dropped connection and
+    calibration results;
+  - iPhone: Safari has no Vibration API, so iOS 18+ gets a system tick from a hidden switch control (unverified on
+    a real iPhone). Game rumble is still impossible: Cemu sends no rumble to DSU controllers.
 - Release workflow: a manual run on `main` with **Make the release** ticked tags the built commit and creates the
   GitHub release, for when a tag can't be pushed. Pre-releases are published at once; full versions stay drafts.
 

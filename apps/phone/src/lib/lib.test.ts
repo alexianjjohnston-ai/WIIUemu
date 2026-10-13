@@ -64,13 +64,21 @@ describe('settings', () => {
       layout: 'comfort',
       leftHanded: true,
       scale: 1.23,
+      haptics: 'light',
     });
   });
 
   it('round-trips through storage', () => {
     const store = memoryStore();
-    saveSettings({ layout: 'comfort', leftHanded: true, scale: 1.2 }, store);
-    expect(loadSettings(store)).toEqual({ layout: 'comfort', leftHanded: true, scale: 1.2 });
+    saveSettings({ layout: 'comfort', leftHanded: true, scale: 1.2, haptics: 'strong' }, store);
+    expect(loadSettings(store)).toEqual({ layout: 'comfort', leftHanded: true, scale: 1.2, haptics: 'strong' });
+  });
+
+  it('keeps haptics light unless a valid strength was stored', () => {
+    expect(DEFAULT_SETTINGS.haptics).toBe('light');
+    expect(parseSettings({ haptics: 'off' }).haptics).toBe('off');
+    expect(parseSettings({ haptics: 'max' }).haptics).toBe('light');
+    expect(parseSettings({ haptics: 1 }).haptics).toBe('light');
   });
 
   it('survives storage that throws', () => {
