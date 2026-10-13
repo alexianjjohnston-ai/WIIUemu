@@ -22,7 +22,7 @@ tokio = { workspace = true, features = ["process"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 axum = { version = "0.8", features = ["ws"] }
-tower-http = { version = "0.6", features = ["fs"] }
+tower-http = { version = "0.7", features = ["fs"] }
 clap = { version = "4", features = ["derive", "env"] }
 getrandom = "0.3"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
