@@ -98,7 +98,18 @@ export interface GyroMessage {
   samples: [number, number, number, number][];
 }
 
-export type ClientMessage = HelloMessage | InputMessage | PingMessage | GyroMessage;
+/** Protocol 2: the player is aiming at the centre of the TV now; the PC measures the aim point. */
+export interface CalibrateMessage {
+  type: 'calibrate';
+}
+
+/** Protocol 2: apply a stored aim point (fraction of the camera image), or the image centre for `null`. */
+export interface AimMessage {
+  type: 'aim';
+  point: Vec2 | null;
+}
+
+export type ClientMessage = HelloMessage | InputMessage | PingMessage | GyroMessage | CalibrateMessage | AimMessage;
 
 /** Protocol 2 limits for `gyro` and binary `camera_frame` messages. */
 export const MAX_GYRO_SAMPLES = 64;
@@ -149,4 +160,12 @@ export interface TrackingMessage {
   fixes_per_s: number;
 }
 
-export type ServerMessage = WelcomeMessage | PongMessage | ErrorMessage | TrackingMessage;
+/** Why a calibration failed; kept as string so newer servers do not break older phones. */
+export type CalibrationFailure = 'no_markers' | 'off_image' | (string & {});
+
+/** Protocol 2: result of `calibrate`. */
+export type CalibrationMessage =
+  | { type: 'calibration'; ok: true; point: Vec2; reason: null }
+  | { type: 'calibration'; ok: false; point: null; reason: CalibrationFailure };
+
+export type ServerMessage = WelcomeMessage | PongMessage | ErrorMessage | TrackingMessage | CalibrationMessage;

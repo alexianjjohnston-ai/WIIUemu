@@ -635,9 +635,50 @@
   background: var(--danger);
 }
 
+.calibration-line {
+  pointer-events: auto;
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 4px 4px 4px 12px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.92);
+  box-shadow: 0 4px 14px rgb(20 40 60 / 0.12);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.calibration-line .btn--small {
+  padding: 0.3rem 0.8rem;
+  font-size: 0.8rem;
+}
+
+/* Left-handed: the B zone is on the left edge, so the camera lines go to the right, over the remote's top. */
+.wm-screen[data-hand='left'] .camera-line,
+.wm-screen[data-hand='left'] .calibration-line {
+  margin-left: auto;
+}
+
+/* Only buttons: no text gap on the left. */
+.calibration-line:not(:has(.calibration-text)) {
+  padding-left: 4px;
+}
+
+.calibration-line[data-status='failed'] .calibration-text {
+  color: var(--danger);
+}
+
+.calibration-line[data-status='saved'] .calibration-text {
+  color: var(--ok);
+}
+
 .camera-line {
   pointer-events: auto;
-  display: inline-flex;
+  display: flex;
+  width: fit-content;
   align-items: center;
   gap: 8px;
   max-width: 100%;

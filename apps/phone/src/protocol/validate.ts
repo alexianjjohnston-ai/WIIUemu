@@ -18,6 +18,7 @@ import {
   WIIMOTE_BUTTONS,
   type Role,
   type ServerMessage,
+  type Vec2,
 } from './types';
 
 const MAX_SEQ = 2 ** 53; // exclusive
@@ -208,6 +209,16 @@ export function validateCameraFrame(bytes: Uint8Array, lastSeq: number | null = 
  * Validates any client frame (as sent on the wire). Returns a list of errors; empty means valid.
  * `role` is needed to check `input.buttons`.
  */
+/** An aim point: `null`, or `x` and `y` finite and within [0,1] (the server rejects anything else). */
+export function isAimPoint(p: unknown): p is Vec2 {
+  return isObject(p) && isFiniteNumber(p.x) && isFiniteNumber(p.y) && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1;
+}
+
+function validateAim(msg: unknown): string[] {
+  if (!isObject(msg) || !('point' in msg)) return ['aim: point is required (an {x, y} object or null)'];
+  return msg.point === null || isAimPoint(msg.point) ? [] : ['aim: point must be null or x, y within [0,1]'];
+}
+
 export function validateClientFrame(text: string, role: Role): string[] {
   const errors = validateFrame(text);
   let msg: unknown;
@@ -226,6 +237,10 @@ export function validateClientFrame(text: string, role: Role): string[] {
       return [...errors, ...validatePing(msg)];
     case 'gyro':
       return [...errors, ...validateGyro(msg)];
+    case 'calibrate':
+      return [...errors, ...(role === 'wiimote' ? [] : ['calibrate is only for the wiimote role'])];
+    case 'aim':
+      return [...errors, ...(role === 'wiimote' ? [] : ['aim is only for the wiimote role']), ...validateAim(msg)];
     default:
       return [...errors, `unknown type ${JSON.stringify(type)}`];
   }
@@ -287,6 +302,14 @@ export function parseServerMessage(text: string): ServerMessage | null {
       }
       return null;
     }
+    case 'calibration':
+      if (msg.ok === true && isAimPoint(msg.point)) {
+        return { type: 'calibration', ok: true, point: { x: msg.point.x, y: msg.point.y }, reason: null };
+      }
+      if (msg.ok === false && typeof msg.reason === 'string') {
+        return { type: 'calibration', ok: false, point: null, reason: msg.reason };
+      }
+      return null;
     default:
       return null;
   }

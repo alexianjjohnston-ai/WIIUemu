@@ -1,4 +1,4 @@
-import type { CameraPointerState } from '../../tracking/CameraPointer';
+import type { CameraPointerState, CalibrationStatus } from '../../tracking/CameraPointer';
 
 interface ButtonProps {
   state: CameraPointerState;
@@ -50,10 +50,81 @@ interface StatusProps {
   /** The user tapped the toggle on a page where the camera can't work: explain why. */
   explainUnsupported: boolean;
   onDismissError: () => void;
+  onCalibrate: () => void;
+  onResetCalibration: () => void;
+}
+
+/** Short enough for one line beside its buttons, so the row never covers the remote's controls. */
+function calibrationText(c: CalibrationStatus): string | null {
+  switch (c.status) {
+    case 'none':
+      return null;
+    case 'countdown':
+      return `Aim at the centre cross · ${c.seconds}`;
+    case 'measuring':
+      return 'Hold still…';
+    case 'saved':
+      return c.justNow ? 'Calibrated ✓' : null;
+    case 'failed':
+      switch (c.reason) {
+        case 'no_markers':
+          return 'TV border not seen';
+        case 'off_image':
+          return 'Aim at the cross';
+        case 'not_connected':
+          return 'Not connected';
+        default:
+          return 'Didn’t work';
+      }
+  }
+}
+
+/**
+ * Calibrate / reset, under the camera line. Shown while the PC sees the TV border (measuring needs a camera
+ * fix), and while a calibration is running or reporting its result.
+ */
+function CalibrationRow({
+  calibration: c,
+  canMeasure,
+  onCalibrate,
+  onReset,
+}: {
+  calibration: CalibrationStatus;
+  canMeasure: boolean;
+  onCalibrate: () => void;
+  onReset: () => void;
+}) {
+  const busy = c.status === 'countdown' || c.status === 'measuring';
+  const reporting = c.status === 'failed' || (c.status === 'saved' && c.justNow);
+  if (!canMeasure && !busy && !reporting) return null;
+  const text = calibrationText(c);
+  const label = c.status === 'failed' ? 'Try again' : c.status === 'saved' ? 'Recalibrate' : 'Calibrate pointer';
+  return (
+    <div className="calibration-line" data-testid="calibration" data-status={c.status} role="status">
+      {text && <span className="calibration-text">{text}</span>}
+      {!busy && !(c.status === 'saved' && c.justNow) && (
+        <button type="button" className="btn btn--small" data-testid="calibrate" onClick={onCalibrate}>
+          {label}
+        </button>
+      )}
+      {c.status === 'saved' && !c.justNow && (
+        <button type="button" className="btn btn--small btn--ghost" data-testid="calibration-reset" onClick={onReset}>
+          Reset
+        </button>
+      )}
+    </div>
+  );
 }
 
 /** One line under the top bar while camera pointing is on or failed. */
-export function CameraPointerStatus({ state, supported, explainUnsupported, onDismissError }: StatusProps) {
+export function CameraPointerStatus({
+  state,
+  supported,
+  explainUnsupported,
+  onDismissError,
+  onCalibrate,
+  onResetCalibration,
+}: StatusProps) {
   if (!supported) {
     if (!explainUnsupported) return null;
     return (
@@ -87,10 +158,18 @@ export function CameraPointerStatus({ state, supported, explainUnsupported, onDi
     case 'on': {
       const { kind, text } = feedbackText(state);
       return (
-        <div className="camera-line" data-testid="camera-status" data-kind={kind} role="status">
-          <span className="camera-dot" aria-hidden="true" />
-          {text}
-        </div>
+        <>
+          <div className="camera-line" data-testid="camera-status" data-kind={kind} role="status">
+            <span className="camera-dot" aria-hidden="true" />
+            {text}
+          </div>
+          <CalibrationRow
+            calibration={state.calibration}
+            canMeasure={state.feedback?.state === 'tracking'}
+            onCalibrate={onCalibrate}
+            onReset={onResetCalibration}
+          />
+        </>
       );
     }
   }

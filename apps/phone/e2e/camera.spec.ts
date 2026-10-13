@@ -78,4 +78,49 @@ test.describe('camera pointing', () => {
     await page.waitForTimeout(400);
     expect(server.frames.length - stoppedAt).toBeLessThanOrEqual(1);
   });
+
+  test('calibrates the pointer and re-applies the stored calibration after reopening', async ({ page, server }) => {
+    await connectAsWiimote(page);
+    await page.getByTestId('camera-toggle').click();
+    await expect(page.getByTestId('camera-status')).toHaveAttribute('data-kind', 'waiting');
+    const row = page.getByTestId('calibration');
+    // Until the PC sees the border, calibrating can't work: nothing is offered.
+    await expect(row).toHaveCount(0);
+
+    server.sendTracking({ state: 'tracking', pointer: { x: 0.4, y: 0.6 }, tags: 9, fixes_per_s: 29 });
+    await expect(row).toHaveAttribute('data-status', 'none');
+    await page.getByTestId('calibrate').click();
+    // A countdown gives time to aim after tapping; then the phone asks the PC to measure.
+    await expect(row).toHaveText('Aim at the centre cross · 3');
+    await expect(page.getByTestId('calibrate')).toHaveCount(0);
+    expect(server.calibrateRequests.length).toBe(0);
+    await expect.poll(() => server.calibrateRequests.length, { timeout: 5000 }).toBe(1);
+    await expect(row).toHaveAttribute('data-status', 'measuring');
+
+    // A failure says what to do and offers another try.
+    server.sendCalibration({ ok: false, point: null, reason: 'off_image' });
+    await expect(row).toHaveAttribute('data-status', 'failed');
+    await expect(row).toContainText('Aim at the cross');
+    await page.getByTestId('calibrate').click();
+    await expect.poll(() => server.calibrateRequests.length, { timeout: 5000 }).toBe(2);
+    server.sendCalibration({ ok: true, point: { x: 0.58, y: 0.46 }, reason: null });
+    await expect(row).toHaveText('Calibrated ✓');
+    await expect(page.getByTestId('calibrate')).toHaveText('Recalibrate', { timeout: 5000 });
+    expect(server.violations).toEqual([]);
+
+    // The phone keeps its calibration: after reopening the page it sends it as soon as the camera is on again.
+    await connectAsWiimote(page);
+    await expect(page.getByTestId('led-1')).toHaveAttribute('data-lit', 'true');
+    await page.getByTestId('camera-toggle').click();
+    await expect.poll(() => server.aims.at(-1)?.point ?? null).toEqual({ x: 0.58, y: 0.46 });
+    await expect(page.getByTestId('camera-status')).toHaveAttribute('data-kind', 'waiting');
+    server.sendTracking({ state: 'tracking', pointer: { x: 0.5, y: 0.5 }, tags: 9, fixes_per_s: 29 });
+    await expect(row).toHaveAttribute('data-status', 'saved');
+
+    // Reset goes back to the camera image centre.
+    await page.getByTestId('calibration-reset').click();
+    await expect.poll(() => server.aims.at(-1)?.point).toBeNull();
+    await expect(row).toHaveAttribute('data-status', 'none');
+    expect(server.violations).toEqual([]);
+  });
 });

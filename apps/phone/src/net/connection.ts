@@ -4,6 +4,7 @@
 import {
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
+  type CalibrationMessage,
   type ClientMessage,
   type HelloMessage,
   type TrackingMessage,
@@ -65,6 +66,8 @@ export interface ConnectionEvents {
   onDown?: () => void;
   /** Protocol 2 camera-tracking feedback from the PC. */
   onTracking?: (msg: TrackingMessage) => void;
+  /** Protocol 2: result of a `calibrate` request. */
+  onCalibration?: (msg: CalibrationMessage) => void;
 }
 
 export class Connection {
@@ -258,6 +261,9 @@ export class Connection {
         return;
       case 'tracking':
         if (this.ready) this.events.onTracking?.(msg);
+        return;
+      case 'calibration':
+        if (this.ready) this.events.onCalibration?.(msg);
         return;
     }
   }
