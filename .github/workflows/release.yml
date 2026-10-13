@@ -107,7 +107,11 @@ jobs:
           if ((Get-Item (Join-Path $dir 'cemu.zip')).Length -ne $asset.size) { throw 'Cemu zip size mismatch' }
           Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/cemu-project/Cemu/$tag/LICENSE.txt" -OutFile (Join-Path $dir 'LICENSE.txt')
           if ((Get-Content (Join-Path $dir 'LICENSE.txt') -Raw) -notmatch 'Mozilla Public License Version 2\.0') { throw 'Cemu license is not MPL-2.0 any more: review before bundling' }
-          Set-Content -NoNewline (Join-Path $dir 'TAG') $tag
+          [System.IO.File]::WriteAllText((Join-Path $dir 'TAG'), $tag)
+          foreach ($f in 'cemu.zip', 'TAG', 'LICENSE.txt') {
+            if (-not (Test-Path -LiteralPath (Join-Path $dir $f) -PathType Leaf)) { throw "$f was not written to $dir" }
+          }
+          Get-ChildItem $dir | Format-Table Name, Length | Out-String
           "Including Cemu $tag ($($asset.name), $($asset.size) bytes, sha256 $hash)"
           "WIIU_CONNECT_BUNDLE_CEMU=$dir" >> $env:GITHUB_ENV
           "CEMU_TAG=$tag" >> $env:GITHUB_ENV
@@ -118,7 +122,11 @@ jobs:
           name: phone-web
           path: apps/phone/dist
       # .cargo/config.toml links the C runtime statically.
-      - run: cargo build --release --locked -p wiiu-connect
+      - name: Build
+        shell: pwsh
+        run: |
+          Get-ChildItem $env:WIIU_CONNECT_BUNDLE_CEMU | Format-Table Name, Length | Out-String
+          cargo build --release --locked -p wiiu-connect
       - name: Check that the exe is self-contained
         shell: pwsh
         run: |
