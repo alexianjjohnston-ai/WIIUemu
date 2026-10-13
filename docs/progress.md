@@ -2,7 +2,7 @@
 
 Hand-off notes for the next session. Newest first.
 
-## 2026-10-13: Pointer calibration (branch `feat/pointer-calibration`, stacked on `feat/gamepad-controller`)
+## 2026-10-13: Pointer calibration (branch `feat/pointer-calibration`, PR #22)
 
 - **Protocol** (protocol 2, docs first): `calibrate` (phone → PC), `aim` with a stored point or `null`, and the
   `calibration` result with `no_markers` / `off_image` reasons.
@@ -18,6 +18,25 @@ Hand-off notes for the next session. Newest first.
   on the TV centre, also after a reconnect with `aim`. Other tests cover timeout, validation, phone unit tests
   with fake timers, a Playwright flow, and an overlay check in 6 layouts × 2 phones.
 - **Unverified:** real phones (does one centre calibration fix the offset across the whole screen?).
+- **Next:** GamePad screen streaming (work package 5, ADR-0002).
+
+## 2026-10-13: One-file release that sets itself up (branch `feat/release-packaging`, PR #21)
+
+- **The release exe is self-contained.** It has the phone app embedded, a static C runtime, an icon and version
+  info, and the official Cemu release built in (Windows). Cemu is fetched at release build time; its URL and size
+  are checked, plus GitHub's SHA-256 digest when one is published (none for v2.6). The MPL-2.0 notice is written as
+  `CEMU-LICENSE.txt`.
+- **Automatic setup on start.** It uses or installs Cemu (built-in first, then download), assigns controllers, turns
+  on Cemu's GamePad window (`open_pad`) and finds game folders. The setup page shows a live checklist and the
+  pairing QR code. `--no-auto-setup` turns it off.
+- **Release workflow.** A tag produces a draft release with notes and checksums. `test/**` branches run the same
+  builds and smoke tests on real Windows and macOS runners.
+- **Verified on CI runners:** release run 38380958236 (`7d2edf2`) passed on Windows: no CRT DLLs, the exe alone
+  in an empty folder, the automatic setup installing the built-in Cemu v2.6 with no download, then updating it by
+  download.
+- **Unverified:** the owner's PC (SmartScreen, firewall prompt, game discovery on real folders).
+- **Merged** after #20: the automatic setup now assigns all four controllers (`assign_controllers`), including the
+  phone GamePad on Controller 1.
 
 ## 2026-10-12/13: Release 1.0 started (branch `feat/gamepad-controller`)
 

@@ -67,6 +67,10 @@ struct ServeArgs {
     /// Disable the setup page (Cemu download and configuration).
     #[arg(long)]
     no_setup: bool,
+    /// Don't set things up automatically on start (getting Cemu, controllers, GamePad window, finding games);
+    /// everything stays available as buttons on the setup page.
+    #[arg(long)]
+    no_auto_setup: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -108,8 +112,25 @@ struct ProbeArgs {
     slot: u8,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> std::process::ExitCode {
+    // Started by double-clicking the exe: Windows closes the console window as soon as the process ends, so an
+    // error would vanish before it can be read.
+    let double_clicked = cfg!(windows) && std::env::args_os().len() == 1;
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+    match runtime.block_on(run()) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("\nError: {e:#}");
+            if double_clicked {
+                eprintln!("\nPress Enter to close this window.");
+                let _ = std::io::stdin().read_line(&mut String::new());
+            }
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,wiiu_dsu=info".into()),
@@ -121,6 +142,22 @@ async fn main() -> anyhow::Result<()> {
         Command::CemuProfile(args) => cemu_profile(args),
         Command::Probe(args) => probe(args).await,
     }
+}
+
+/// True when another Wii U Connect already answers on `port` on this PC.
+fn already_running(port: u16) -> bool {
+    ureq::get(&format!("http://localhost:{port}/api/setup/status"))
+        .timeout(Duration::from_secs(2))
+        .call()
+        .ok()
+        .and_then(|r| r.into_json::<serde_json::Value>().ok())
+        .is_some_and(|v| v.get("setup").is_some())
+}
+
+fn is_addr_in_use(e: &anyhow::Error) -> bool {
+    e.chain()
+        .filter_map(|c| c.downcast_ref::<std::io::Error>())
+        .any(|io| io.kind() == std::io::ErrorKind::AddrInUse)
 }
 
 async fn serve(args: ServeArgs) -> anyhow::Result<()> {
@@ -139,7 +176,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         tracing::warn!("phone app not found (looked in {candidates:?}) – build apps/phone or pass --web-dir");
     }
     let data_dir = args.data_dir.unwrap_or_else(wiiu_connect::tls::default_data_dir);
-    let (running, task) = wiiu_connect::start(
+    let started = wiiu_connect::start(
         ServerConfig {
             bind: args.bind,
             dsu_bind: args.dsu,
@@ -148,6 +185,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             embedded_web: true,
             setup: (!args.no_setup).then(|| wiiu_connect::setup::SetupConfig {
                 data_dir: data_dir.clone(),
+                auto: !args.no_auto_setup,
             }),
             allowed_origins: args.allowed_origins,
             public_host: args.public_host,
@@ -158,11 +196,35 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         },
         stop_rx,
     )
-    .await?;
+    .await;
+    let (running, task) = match started {
+        Ok(started) => started,
+        Err(e) if is_addr_in_use(&e) => {
+            let port = args.bind.port();
+            if !args.no_setup
+                && tokio::task::spawn_blocking(move || already_running(port))
+                    .await
+                    .unwrap_or(false)
+            {
+                // Double-clicked a second time: show the running copy instead of failing.
+                println!("Wii U Connect is already running. Opening its setup page.");
+                if !args.no_browser {
+                    wiiu_connect::setup::open_browser(&format!("http://localhost:{port}/setup"));
+                }
+                return Ok(());
+            }
+            return Err(e.context(
+                "another program is using one of Wii U Connect's ports (8737, 8738, 26760); close it, or start \
+                 Wii U Connect with --bind / --https-bind / --dsu to use other ports",
+            ));
+        }
+        Err(e) => return Err(e),
+    };
 
     let local = format!("http://localhost:{}", running.http_addr.port());
     println!();
-    println!("  Wii U Connect is running");
+    println!("  Wii U Connect {} is running", env!("CARGO_PKG_VERSION"));
+    println!("  Keep this window open while you play; close it to stop.");
     println!("  ─────────────────────────");
     if !args.no_setup {
         println!("  Setup:              {local}/setup  (Cemu, controllers, your games)");

@@ -5,27 +5,39 @@ with Dumpling on your own Wii U.
 
 ## 1. Start it
 
-- **Windows:** unzip `wiiu-connect-windows-x64.zip` and double-click `wiiu-connect.exe`. It's a single file. If
-  Windows asks about network access, allow it on private networks.
-- **macOS:** unzip `wiiu-connect-macos-universal.zip`, then in Terminal, in that folder:
+- **Windows:** double-click `WiiUConnect-<version>-windows-x64.exe`. It's a single file, with nothing to install
+  or unzip.
+  - If SmartScreen says "Windows protected your PC", click **More info → Run anyway** (the exe is not code-signed
+    yet).
+  - If Windows asks about network access, allow it on private networks.
+  - Starting it a second time just opens the setup page of the copy that is already running.
+- **macOS:** unzip `WiiUConnect-<version>-macos-universal.zip`, then in Terminal, in that folder:
   `xattr -d com.apple.quarantine wiiu-connect && ./wiiu-connect`. Allow incoming connections when asked.
 
 Keep the window open. The **setup page** opens in your browser. If it doesn't, go to `http://localhost:8737`.
 
 ## 2. Setup page
 
-1. **Cemu emulator:**
-   - **Windows:** click **Download & install Cemu**. This fetches the official release from
-     github.com/cemu-project/Cemu into Wii U Connect's own folder, and sets up the controllers automatically.
-   - **Mac, or if you already have Cemu:** open "I already have Cemu" and click **Use this Cemu**. A folder picker
-     opens, or you can type the path.
-2. **Controllers:** click **Set up controllers** if it doesn't say "Ready". Cemu's Controller 1 becomes the phone
-   GamePad and Controllers 2–4 become the phone Wii Remotes. Existing settings are backed up first
-   (`controllerN.xml.before-wiiu-connect`).
-3. **Your games:** click **Add game folder** and pick the folder with your own dumps (`.wua` files or unpacked
-   games). Encrypted `.wud`/`.wux` images also need your console's keys in Cemu's `keys.txt`.
-4. **Phones:** open the pairing page link and scan the QR code (step 3 below).
-5. **Play:** click **Play** next to a game.
+Wii U Connect sets itself up when it starts. The setup page shows a checklist, "Setting everything up":
+1. **Get Cemu:** it uses your Cemu if it finds one. Otherwise it unpacks the official Cemu release that is built
+   into the Windows exe into its own folder; no internet needed. (Builds without a built-in Cemu, such as
+   `cargo run`, download it from github.com/cemu-project/Cemu instead.) **Update Cemu** on the setup page
+   downloads the newest release later, keeping your settings.
+2. **Controllers:** Cemu's Controller 1 becomes the phone GamePad and Controllers 2–4 the phone Wii Remotes. Your
+   previous settings are backed up first (`controllerN.xml.before-wiiu-connect`).
+3. **GamePad window:** Cemu opens its separate GamePad window when it starts.
+4. **Your games:** it looks for your own game dumps (`.wua`, `.wud`, `.wux`, `.iso` or unpacked games) in
+   Downloads, Documents, Desktop, Games and Videos, and in game-named folders on other drives. It adds the folders
+   it finds to Cemu.
+
+If a step shows **!** or **✕**, the section below it on the page lets you do that step by hand:
+- choose your Cemu folder;
+- add the folder with your game dumps (encrypted `.wud`/`.wux` images also need your console's keys in Cemu's
+  `keys.txt`).
+
+Then scan the **QR code on the setup page** with each phone, and press **Play** next to a game.
+
+To skip the automatic part, start with `--no-auto-setup`; every step stays available as a button.
 
 ## 3. Buttons and phones
 

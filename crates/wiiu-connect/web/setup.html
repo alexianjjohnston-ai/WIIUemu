@@ -33,18 +33,34 @@
   ul.games li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
   ul.games .name { flex: 1; } .kind { font-size: 12px; color: var(--muted); text-transform: uppercase; }
   a { color: var(--accent); }
+  ul.auto { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  ul.auto li { display: grid; grid-template-columns: 22px 1fr; gap: 2px 8px; align-items: start; }
+  ul.auto .icon { font-weight: 700; text-align: center; }
+  ul.auto .detail { grid-column: 2; font-size: 13px; color: var(--muted); word-break: break-word; }
+  .st-done .icon { color: var(--ok); } .st-failed .icon { color: var(--err); } .st-skipped .icon { color: var(--warn); }
+  .st-running .icon { animation: spin 1s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .pair { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .pair img { width: 180px; height: 180px; background: #fff; border-radius: 10px; padding: 6px; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Wii U Connect – Setup</h1>
+  <h1>Wii U Connect – Setup <span class="small muted" id="version"></span></h1>
   <p class="muted note">Wii U Connect sets up the Cemu emulator and your phones. It never downloads games, keys or
     Nintendo system files. Use dumps of games you own, for example made with <em>Dumpling</em> on your own Wii U.</p>
+
+  <section class="card" id="auto" hidden>
+    <div class="head"><h2>Setting everything up</h2><span class="chip" id="auto-chip"></span></div>
+    <ul class="auto" id="auto-steps"></ul>
+    <div class="small muted" id="auto-next"></div>
+  </section>
 
   <section class="card" id="step-cemu">
     <div class="head"><span class="num">1</span><h2>Cemu emulator</h2><span class="chip" id="cemu-chip">Checking…</span></div>
     <div id="cemu-info" class="small muted"></div>
     <div class="row" id="cemu-download-row">
+      <button class="primary" id="btn-included" hidden>Install Cemu</button>
       <button class="primary" id="btn-download">Download &amp; install Cemu</button>
       <span class="small muted">Official release from <a id="releases-link" target="_blank" rel="noopener">github.com/cemu-project/Cemu</a> (free, open source).</span>
     </div>
@@ -62,7 +78,7 @@
   <section class="card" id="step-controllers">
     <div class="head"><span class="num">2</span><h2>Controllers</h2><span class="chip" id="ctl-chip"></span></div>
     <div class="small muted">Cemu's Controller 1 becomes the phone GamePad and Controllers 2–4 the phone Wii Remotes
-      (players 1–3). Your own settings are backed up first.</div>
+      (players 1–3). Your own settings are backed up first. This happens automatically on start.</div>
     <div class="row"><button id="btn-controllers">Set up controllers</button></div>
     <div class="error small" id="ctl-error"></div>
   </section>
@@ -82,8 +98,16 @@
 
   <section class="card" id="step-phones">
     <div class="head"><span class="num">4</span><h2>Phones</h2><span class="chip" id="phones-chip"></span></div>
-    <div class="small muted">Open the <a href="/pair" target="_blank">pairing page</a> and scan its QR code with each
-      phone (same Wi-Fi). For camera pointing, show <a href="/tracking" target="_blank">the TV border page</a> fullscreen.</div>
+    <div class="pair">
+      <img id="pair-qr" src="/api/setup/phone-qr.svg" alt="QR code for phones">
+      <div class="small">
+        <div>Scan this with each phone's camera (same Wi-Fi as this PC), then choose <b>GamePad</b> or
+          <b>Wii Remote</b>. The phone warns about the certificate once: continue anyway.</div>
+        <div class="muted" style="margin-top:6px">Or type: <code id="phone-url"></code></div>
+        <div class="muted" style="margin-top:6px">For camera pointing, show <a href="/tracking" target="_blank">the TV
+          border page</a> fullscreen.</div>
+      </div>
+    </div>
     <div id="phones" class="small"></div>
   </section>
 
@@ -127,7 +151,34 @@ function setDone(stepId, done, chipText) {
   $(stepId).querySelector('.chip').textContent = chipText;
 }
 
-function render({ setup: s, phones }) {
+const ICONS = { pending: '·', running: '↻', done: '✓', skipped: '!', failed: '✕' };
+
+function renderAuto(steps) {
+  $('auto').hidden = steps.length === 0;
+  if (!steps.length) return;
+  $('auto-steps').replaceChildren(...steps.map((st) => {
+    const li = document.createElement('li');
+    li.className = `st-${st.state}`;
+    li.dataset.step = st.id;
+    li.dataset.state = st.state;
+    const icon = document.createElement('span'); icon.className = 'icon'; icon.textContent = ICONS[st.state] || '·';
+    const title = document.createElement('span'); title.textContent = st.title;
+    li.append(icon, title);
+    if (st.detail) { const d = document.createElement('span'); d.className = 'detail'; d.textContent = st.detail; li.append(d); }
+    return li;
+  }));
+  const finished = steps.every((st) => st.state !== 'pending' && st.state !== 'running');
+  const needsYou = steps.filter((st) => st.state === 'failed' || st.state === 'skipped');
+  $('auto').classList.toggle('done', finished && needsYou.length === 0);
+  $('auto-chip').textContent = !finished ? 'Working…' : needsYou.length ? 'Needs you' : 'Done';
+  $('auto-next').textContent = !finished ? 'This takes a minute the first time. You can already pair your phones below.'
+    : needsYou.length ? 'Some steps need you: see the sections below.' : 'All set: scan the QR code with your phones, then press Play.';
+}
+
+function render({ setup: s, phones, phone_url }) {
+  $('version').textContent = s.version ? `v${s.version}` : '';
+  renderAuto(s.auto || []);
+  if (phone_url) $('phone-url').textContent = phone_url;
   $('releases-link').href = s.releases_page;
   const c = s.cemu;
   setDone('step-cemu', !!c, c ? (c.version ? `Installed (${c.version})` : 'Found') : 'Not set up');
@@ -143,7 +194,13 @@ function render({ setup: s, phones }) {
   if (d.state === 'failed') $('cemu-error').textContent = 'Install failed: ' + d.error;
   else if ($('cemu-error').textContent.startsWith('Install failed')) $('cemu-error').textContent = '';
   $('cemu-download-row').hidden = !s.can_download;
-  $('btn-download').textContent = c && c.managed ? 'Update Cemu' : 'Download & install Cemu';
+  // A Cemu built into this exe installs without internet; downloading then only updates it.
+  const included = s.bundled_cemu && !c;
+  $('btn-included').hidden = !included;
+  $('btn-included').textContent = `Install Cemu ${s.bundled_cemu || ''} (included, no download)`;
+  $('btn-included').disabled = running || busy;
+  $('btn-download').className = included ? '' : 'primary';
+  $('btn-download').textContent = c && c.managed ? 'Update Cemu' : included ? 'Download the newest instead' : 'Download & install Cemu';
   $('btn-download').disabled = running || busy;
   if (!s.can_download && !c) $('locate-box').open = true;
 
@@ -155,10 +212,11 @@ function render({ setup: s, phones }) {
   $('game-dirs').textContent = s.game_dirs.length ? 'Game folders: ' + s.game_dirs.join(' · ') : 'No game folder yet.';
   $('btn-games').disabled = !c || busy;
 
-  const remotes = phones.filter((p) => p.role === 'wiimote');
-  const connected = remotes.filter((p) => p.connected);
+  const connected = phones.filter((p) => p.connected);
   setDone('step-phones', connected.length > 0, connected.length ? `${connected.length} connected` : 'None connected');
-  $('phones').textContent = remotes.map((p) => `P${p.player}: ${p.connected ? (p.device_name || 'Phone') : '–'}`).join('   ');
+  $('phones').textContent = phones
+    .map((p) => `${p.role === 'gamepad' ? 'GamePad' : `P${p.player}`}: ${p.connected ? (p.device_name || 'Phone') : '–'}`)
+    .join('   ');
 
   const list = $('games');
   list.replaceChildren(...s.games.map((g) => {
@@ -198,6 +256,7 @@ async function poll() {
 }
 
 $('btn-download').onclick = () => post('/api/setup/cemu/download', {}, $('cemu-error'));
+$('btn-included').onclick = () => post('/api/setup/cemu/install-included', {}, $('cemu-error'));
 $('btn-locate').onclick = () => post('/api/setup/cemu/locate', { path: $('cemu-path').value || null }, $('cemu-error'));
 $('btn-controllers').onclick = async () => {
   const r = await post('/api/setup/controllers', {}, $('ctl-error'));

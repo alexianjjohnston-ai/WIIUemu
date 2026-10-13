@@ -35,18 +35,25 @@ phone 1, and pointer calibration.
 
 ## Download
 
-Prebuilt packages are attached to [GitHub Releases](../../releases) once a version is tagged:
+Get the latest version from [GitHub Releases](../../releases):
 
-- **Windows:** `wiiu-connect-windows-x64.zip`
-- **macOS (Apple Silicon and Intel):** `wiiu-connect-macos-universal.zip`
+- **Windows 10/11:** `WiiUConnect-<version>-windows-x64.exe`. It is **one file** with nothing to install.
+  Double-click it and it sets everything up by itself:
+  - It uses your Cemu, or installs the official Cemu that is built into the exe (no download needed).
+  - It connects Cemu's controllers to the phones.
+  - It opens Cemu's GamePad window.
+  - It finds your own game dumps.
 
-Each download is a single program. Start it and the **setup page** opens in your browser. On Windows it can
-download and set up the official Cemu for you. Then you add the folder with your own game dumps, and the phones
-pair by QR code. Wii U Connect never downloads games, keys or Nintendo system files. See [TESTING.md](TESTING.md).
+  Then you scan the QR code on the setup page with your phones and press Play.
 
-The Mac build is not notarised. After unzipping, run once in Terminal:
-`xattr -d com.apple.quarantine wiiu-connect`, then start it with `./wiiu-connect`. Allow incoming connections
-when macOS asks; phones need to reach it.
+  The exe is not code-signed yet, so SmartScreen may say "Windows protected your PC": click **More info → Run
+  anyway**. When the firewall asks, allow private networks so phones can connect.
+- **macOS (Apple Silicon and Intel):** `WiiUConnect-<version>-macos-universal.zip`. It is not notarised: after
+  unzipping, run `xattr -d com.apple.quarantine wiiu-connect` once in Terminal, then start it with
+  `./wiiu-connect`. Allow incoming connections when macOS asks.
+
+Wii U Connect never downloads games, keys or Nintendo system files. See [TESTING.md](TESTING.md) for a first-run
+walkthrough and [docs/releasing.md](docs/releasing.md) for how releases are built.
 
 ## Try it (developer preview)
 

@@ -1,0 +1,7 @@
+# Release executables must be single files. Statically link the C runtime on Windows so the exe does not need
+# the Visual C++ Redistributable (vcruntime140.dll); the `cc`-built AprilTag library follows this flag too.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
