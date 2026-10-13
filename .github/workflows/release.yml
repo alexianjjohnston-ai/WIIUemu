@@ -63,7 +63,7 @@ jobs:
       - name: Build
         working-directory: apps/phone
         run: npm ci && npm run build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: phone-web
           path: apps/phone/dist
@@ -200,7 +200,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force out | Out-Null
           Copy-Item target/release/wiiu-connect.exe "out/WiiUConnect-$env:VERSION-windows-x64.exe"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-x64
           path: out/*
@@ -246,7 +246,7 @@ jobs:
           cp README.md TESTING.md THIRD_PARTY_NOTICES.md package/
           mkdir -p out
           ditto -c -k --sequesterRsrc package "out/WiiUConnect-$VERSION-macos-universal.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos-universal
           path: out/*
