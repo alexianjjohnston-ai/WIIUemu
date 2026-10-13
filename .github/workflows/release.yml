@@ -1,10 +1,11 @@
 name: Release
 
-# Builds downloadable packages for Windows and macOS.
-# - Manual run (Actions → Release → Run workflow): builds packages as workflow artifacts only.
-# - Pushing a tag like v0.1.0: also creates a *draft* GitHub release with the packages attached,
-#   which the repository owner reviews and publishes.
-# - Pushing a `test/**` branch: builds packages as workflow artifacts only (for hands-on testing).
+# Builds the downloads: one self-contained .exe for Windows, a zip with one universal binary for macOS.
+# - Pushing a tag like v1.0.0 (must match the version in Cargo.toml and apps/phone/package.json, and have a
+#   CHANGELOG section): builds, tests the executables and creates a *draft* GitHub release with notes from
+#   CHANGELOG.md and SHA256 checksums. The repository owner reviews and publishes it (docs/releasing.md).
+# - Manual run (Actions → Release → Run workflow) or pushing a `test/**` branch: same builds and tests, the
+#   files are attached to the workflow run only.
 
 on:
   workflow_dispatch:
@@ -17,32 +18,63 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # A release build without the phone app inside is a broken download: make it a build error.
+  WIIU_CONNECT_REQUIRE_WEB: "1"
 
 jobs:
+  version:
+    name: Check version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: Read and check the version
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version *= *"\(.*\)"/\1/p}' Cargo.toml)
+          phone=$(node -p "require('./apps/phone/package.json').version")
+          echo "Cargo: $version, phone app: $phone"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Cargo.toml version '$version' is not a semantic version"; exit 1
+          fi
+          if [ "$version" != "$phone" ]; then
+            echo "::error::Cargo.toml ($version) and apps/phone/package.json ($phone) disagree"; exit 1
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+              echo "::error::tag $GITHUB_REF_NAME does not match version v$version"; exit 1
+            fi
+            grep -q "^## \[$version\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no '## [$version]' section"; exit 1; }
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   phone-app:
     name: Build phone app
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/phone/package-lock.json
       - name: Build
-        if: ${{ hashFiles('apps/phone/package-lock.json') != '' }}
         working-directory: apps/phone
         run: npm ci && npm run build
-      - name: Collect
-        run: |
-          mkdir -p web
-          if [ -d apps/phone/dist ]; then cp -R apps/phone/dist/. web/; fi
       - uses: actions/upload-artifact@v4
         with:
           name: phone-web
-          path: web
-          if-no-files-found: ignore
+          path: apps/phone/dist
+          if-no-files-found: error
           retention-days: 7
 
   windows:
     name: Windows (x64)
-    needs: phone-app
+    needs: [version, phone-app]
     runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -52,9 +84,39 @@ jobs:
         with:
           name: phone-web
           path: apps/phone/dist
+      # .cargo/config.toml links the C runtime statically.
       - run: cargo build --release --locked -p wiiu-connect
+      - name: Check that the exe is self-contained
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          $deps = & $dumpbin /nologo /dependents target/release/wiiu-connect.exe | Out-String
+          $deps
+          if ($deps -match '(?i)vcruntime|msvcp|api-ms-win-crt|ucrtbase') { throw 'the exe needs the Visual C++ runtime DLLs' }
+      - name: Smoke test (the exe alone in an empty folder)
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'lonely'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item target/release/wiiu-connect.exe (Join-Path $dir 'WiiUConnect.exe')
+          $exe = Join-Path $dir 'WiiUConnect.exe'
+          $v = & $exe --version
+          if ($v -ne "wiiu-connect $env:VERSION") { throw "unexpected --version output: $v" }
+          $data = Join-Path $env:RUNNER_TEMP 'smoke-data'
+          $p = Start-Process -FilePath $exe -WorkingDirectory $dir -PassThru -ArgumentList '--no-browser','--bind','127.0.0.1:8737','--data-dir',$data
+          try {
+            Start-Sleep 3
+            $page = Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8737/?token=smoke-test-token'
+            if ($page.Content -notmatch 'id="root"') { throw 'the embedded phone app was not served' }
+            $s = Invoke-RestMethod http://localhost:8737/api/setup/status
+            if ($s.setup.version -ne $env:VERSION) { throw "setup page reports version $($s.setup.version)" }
+            # HTTPS for phones (self-signed certificate created on first start).
+            $code = & curl.exe -sk -o NUL -w '%{http_code}' 'https://127.0.0.1:8738/?token=smoke-test-token'
+            if ($code -ne '200') { throw "HTTPS listener answered $code" }
+          } finally { Stop-Process $p -ErrorAction SilentlyContinue }
       - name: Smoke test (download and set up the official Cemu release)
-        if: startsWith(github.ref, 'refs/heads/test/')
+        if: startsWith(github.ref, 'refs/heads/test/') || startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
           $data = Join-Path $env:RUNNER_TEMP 'wiiu-data'
@@ -72,22 +134,23 @@ jobs:
           foreach ($f in 'Cemu.exe', 'portable\controllerProfiles\controller1.xml', 'portable\controllerProfiles\controller3.xml') {
             if (-not (Test-Path (Join-Path $data "Cemu\$f"))) { throw "missing $f" }
           }
-      - name: Package
+      - name: Name the download
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force package | Out-Null
-          Copy-Item target/release/wiiu-connect.exe package/
-          Copy-Item README.md, TESTING.md, THIRD_PARTY_NOTICES.md package/ -ErrorAction SilentlyContinue
-          Compress-Archive -Path package/* -DestinationPath wiiu-connect-windows-x64.zip
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item target/release/wiiu-connect.exe "out/WiiUConnect-$env:VERSION-windows-x64.exe"
       - uses: actions/upload-artifact@v4
         with:
-          name: wiiu-connect-windows-x64
-          path: wiiu-connect-windows-x64.zip
+          name: windows-x64
+          path: out/*
+          if-no-files-found: error
 
   macos:
     name: macOS (universal)
-    needs: phone-app
+    needs: [version, phone-app]
     runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -100,7 +163,7 @@ jobs:
           path: apps/phone/dist
       - run: cargo build --release --locked -p wiiu-connect --target aarch64-apple-darwin
       - run: cargo build --release --locked -p wiiu-connect --target x86_64-apple-darwin
-      - name: Universal binary + package
+      - name: Universal binary
         run: |
           mkdir -p package
           lipo -create -output package/wiiu-connect \
@@ -109,30 +172,58 @@ jobs:
           # Ad-hoc signature: required for arm64 executables; not a Developer ID (Gatekeeper still warns).
           codesign --force --sign - package/wiiu-connect
           lipo -info package/wiiu-connect
-          cp README.md TESTING.md package/
-          cp THIRD_PARTY_NOTICES.md package/ 2>/dev/null || true
-          ditto -c -k --sequesterRsrc package wiiu-connect-macos-universal.zip
+      - name: Smoke test
+        run: |
+          test "$(package/wiiu-connect --version)" = "wiiu-connect $VERSION"
+          package/wiiu-connect --no-browser --no-https --bind 127.0.0.1:8737 --data-dir "$RUNNER_TEMP/smoke" &
+          pid=$!
+          sleep 3
+          curl -fsS 'http://127.0.0.1:8737/?token=smoke-test-token' | grep -q 'id="root"'
+          kill $pid
+      - name: Package
+        run: |
+          cp README.md TESTING.md THIRD_PARTY_NOTICES.md package/
+          mkdir -p out
+          ditto -c -k --sequesterRsrc package "out/WiiUConnect-$VERSION-macos-universal.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: wiiu-connect-macos-universal
-          path: wiiu-connect-macos-universal.zip
+          name: macos-universal
+          path: out/*
+          if-no-files-found: error
 
   release:
     name: Draft GitHub release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows, macos]
+    needs: [version, windows, macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: wiiu-connect-*
-          merge-multiple: true
+          name: windows-x64
+          path: out
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-universal
+          path: out
+      - name: Checksums and release notes
+        run: |
+          (cd out && sha256sum WiiUConnect-* > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          cat docs/release-notes-footer.md >> notes.md
+          cat notes.md
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
-          generate_release_notes: true
-          files: |
-            wiiu-connect-windows-x64.zip
-            wiiu-connect-macos-universal.zip
+          prerelease: ${{ contains(needs.version.outputs.version, '-') }}
+          name: Wii U Connect ${{ needs.version.outputs.version }}
+          body_path: notes.md
+          files: out/*
