@@ -91,6 +91,8 @@ pub struct CemuStatus {
 
 #[derive(Debug, Serialize)]
 pub struct SetupStatus {
+    /// Wii U Connect's own version.
+    pub version: &'static str,
     pub platform: &'static str,
     /// Whether Wii U Connect can download Cemu on this OS (otherwise: install it yourself, then locate it).
     pub can_download: bool,
@@ -181,6 +183,7 @@ impl Setup {
         let games = self.games_in(&game_dirs);
         let managed_dir = self.managed_dir();
         SetupStatus {
+            version: env!("CARGO_PKG_VERSION"),
             platform: platform_name(self.platform),
             can_download: matches!(self.platform, Platform::Windows | Platform::Linux),
             releases_page: RELEASES_PAGE,

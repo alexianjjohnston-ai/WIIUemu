@@ -37,7 +37,7 @@
 </head>
 <body>
 <main>
-  <h1>Wii U Connect – Setup</h1>
+  <h1>Wii U Connect – Setup <span class="small muted" id="version"></span></h1>
   <p class="muted note">Wii U Connect sets up the Cemu emulator and your phones. It never downloads games, keys or
     Nintendo system files. Use dumps of games you own, for example made with <em>Dumpling</em> on your own Wii U.</p>
 
@@ -128,6 +128,7 @@ function setDone(stepId, done, chipText) {
 }
 
 function render({ setup: s, phones }) {
+  $('version').textContent = s.version ? `v${s.version}` : '';
   $('releases-link').href = s.releases_page;
   const c = s.cemu;
   setDone('step-cemu', !!c, c ? (c.version ? `Installed (${c.version})` : 'Found') : 'Not set up');
