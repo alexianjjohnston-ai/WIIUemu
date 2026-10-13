@@ -1,9 +1,11 @@
 // Glue between the input engine, the WebSocket connection and the page lifecycle.
 
 import { InputEngine } from '../input/engine';
+import { MotionSensor, type MotionSensorDeps } from '../motion/MotionSensor';
 import { Connection, type ConnectionOptions } from '../net/connection';
 import { WIIMOTE_BUTTONS, type WiimoteButton } from '../protocol/types';
 import { CameraPointer, type CameraPointerDeps } from '../tracking/CameraPointer';
+import { bindPageLifecycle } from './lifecycle';
 
 export interface SessionConfig {
   url: string;
@@ -13,6 +15,7 @@ export interface SessionConfig {
   /** For tests. */
   createSocket?: ConnectionOptions['createSocket'];
   createCamera?: CameraPointerDeps['createCamera'];
+  motion?: Omit<MotionSensorDeps, 'onSample'>;
 }
 
 export class ControllerSession {
@@ -20,7 +23,10 @@ export class ControllerSession {
   readonly connection: Connection;
   /** Protocol 2 camera pointing; off until the user turns it on. */
   readonly camera: CameraPointer;
+  /** Wii Remote accelerometer + MotionPlus from the phone's sensors; off until the user turns it on. */
+  readonly motion: MotionSensor;
   private unbindPage: (() => void) | null = null;
+  private resumeMotion = false;
 
   constructor(config: SessionConfig) {
     const options: ConnectionOptions = {
@@ -53,10 +59,38 @@ export class ControllerSession {
       sendGyro: (msg) => connection.send(msg),
       ...(config.createCamera ? { createCamera: config.createCamera } : {}),
     });
+    this.motion = new MotionSensor('face', {
+      ...config.motion,
+      onSample: () => {
+        this.engine.motionChanged();
+      },
+    });
+    this.engine.setMotionSource(this.motion.getLatest);
+    // Camera pointing needs the back of the phone toward the TV ("photo grip"); otherwise the phone is held like
+    // a Wii Remote, screen up and top edge toward the TV.
+    this.camera.subscribe(() => {
+      const s = this.camera.getState().status;
+      this.motion.setGrip(s === 'on' || s === 'starting' ? 'upright' : 'face');
+    });
   }
 
   start(): void {
-    this.unbindPage ??= bindPageLifecycle(this);
+    this.unbindPage ??= bindPageLifecycle({
+      connection: this.connection,
+      releaseForBackground: () => {
+        this.releaseForBackground();
+      },
+      onHidden: () => {
+        this.camera.suspend();
+        this.resumeMotion = this.motion.getStatus() === 'on';
+        this.motion.disable();
+      },
+      onVisible: () => {
+        void this.camera.resume();
+        if (this.resumeMotion) void this.motion.enable();
+        this.resumeMotion = false;
+      },
+    });
     this.connection.start();
   }
 
@@ -65,6 +99,7 @@ export class ControllerSession {
     this.unbindPage?.();
     this.unbindPage = null;
     this.camera.disable();
+    this.motion.disable();
     this.engine.releaseAllAndFlush();
     this.engine.detach();
     this.connection.stop();
@@ -74,33 +109,4 @@ export class ControllerSession {
   releaseForBackground(): void {
     this.engine.releaseAllAndFlush();
   }
-}
-
-function bindPageLifecycle(session: ControllerSession): () => void {
-  if (typeof window === 'undefined') return () => undefined;
-  const onVisibility = () => {
-    if (document.visibilityState === 'hidden') {
-      session.releaseForBackground();
-      session.camera.suspend();
-    } else {
-      session.connection.retryNow();
-      void session.camera.resume();
-    }
-  };
-  const onBackground = () => {
-    session.releaseForBackground();
-  };
-  const onOnline = () => {
-    session.connection.retryNow();
-  };
-  document.addEventListener('visibilitychange', onVisibility);
-  window.addEventListener('blur', onBackground);
-  window.addEventListener('pagehide', onBackground);
-  window.addEventListener('online', onOnline);
-  return () => {
-    document.removeEventListener('visibilitychange', onVisibility);
-    window.removeEventListener('blur', onBackground);
-    window.removeEventListener('pagehide', onBackground);
-    window.removeEventListener('online', onOnline);
-  };
 }

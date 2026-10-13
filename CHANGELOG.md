@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Phone GamePad** (phone 1, landscape):
+  - shoulder buttons, both sticks, D-pad, ABXY, −/HOME/+ and L3/R3;
+  - a 16:9 touchscreen that becomes Cemu's GamePad touch input.
+- **Motion controls** for the GamePad and the Wii Remotes, from the phone's sensors, in Cemu's DSU axis convention.
+- The setup page now also binds Cemu's Controller 1 to the phone GamePad.
+- `docs/release-1.0.md`: 1.0 scope, work packages and the hardware checklist.
 - **Automatic setup on start**, shown as a live checklist on the setup page. Each step can be turned off with
   `--no-auto-setup`, and every step remains a button.
   - Uses an existing Cemu (a located one, or one installed with Cemu's installer in `%LOCALAPPDATA%\Cemu`).
@@ -38,6 +44,14 @@ All notable changes to this project are documented here. The format follows
   - Adds your own game folders to Cemu, lists the games and launches them.
   - It never downloads games, keys or system files.
 - Single-file release: the phone app is compiled into `wiiu-connect` (no `web` folder).
+
+### Fixed
+- iPhone gyro axes. WebKit reports DeviceMotion `rotationRate` in a different axis order from the spec, so camera
+  pointing on iOS received permuted gyro data.
+- Setup:
+  - updating Cemu can no longer lose the `portable` folder when Cemu is running;
+  - controller profiles use the actual DSU port;
+  - the setup page no longer starts overlapping game-folder scans.
 
 ### Changed
 - Camera pointing, after the first real-phone test:

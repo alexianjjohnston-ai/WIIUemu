@@ -285,7 +285,7 @@ impl Setup {
             releases_page: RELEASES_PAGE,
             controllers_assigned: install
                 .as_ref()
-                .is_some_and(|i| install::wiimotes_assigned(i, self.dsu)),
+                .is_some_and(|i| install::controllers_assigned(i, self.dsu)),
             cemu: install.map(|i| CemuStatus {
                 managed: i.dir == managed_dir,
                 version: std::fs::read_to_string(i.dir.join(".wiiu-connect-version")).ok(),
@@ -386,12 +386,12 @@ impl Setup {
         }
         step("controllers", &|| {
             let install = self.install().ok_or(SetupError::NoCemu)?;
-            if install::wiimotes_assigned(&install, self.dsu) {
+            if install::controllers_assigned(&install, self.dsu) {
                 return Ok((StepState::Done, "Already set up".into()));
             }
-            let report = install::assign_wiimotes(&install, self.dsu)?;
+            let report = install::assign_controllers(&install, self.dsu)?;
             let detail = if report.backups.is_empty() {
-                "Controllers 2–4 are the phone Wii Remotes".to_string()
+                "Controller 1 is the phone GamePad, Controllers 2–4 the phone Wii Remotes".to_string()
             } else {
                 format!(
                     "Done; your previous settings were backed up ({} files)",
@@ -508,7 +508,7 @@ impl Setup {
 
     pub fn assign_controllers(&self) -> Result<install::AssignReport, SetupError> {
         let install = self.install().ok_or(SetupError::NoCemu)?;
-        Ok(install::assign_wiimotes(&install, self.dsu)?)
+        Ok(install::assign_controllers(&install, self.dsu)?)
     }
 
     pub fn add_game_folder(&self, dir: &Path) -> Result<usize, SetupError> {
@@ -716,9 +716,10 @@ impl Setup {
             saved.cemu_dir = Some(target.to_path_buf());
         }
         self.save()?;
+        // A fresh managed install has no controller setup yet: point Controllers 1–4 at the phones.
         let install = CemuInstall::find(target, self.platform, &|k| self.env(k))
             .ok_or_else(|| SetupError::NotCemu(target.to_path_buf()))?;
-        install::assign_wiimotes(&install, self.dsu)?;
+        install::assign_controllers(&install, self.dsu)?;
         Ok(())
     }
 

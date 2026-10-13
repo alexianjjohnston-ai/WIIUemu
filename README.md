@@ -14,21 +14,24 @@ on Windows and macOS:
 Early development. See [`docs/progress.md`](docs/progress.md) for details and
 [`docs/compatibility.md`](docs/compatibility.md) for what has been verified.
 
-Working now, verified by automated tests but **not yet in a real game**:
+Built and covered by automated tests, but **not yet verified in a real game**:
 
 - A Cemuhook/DSU server that Cemu connects to. Every packet layout was checked against Cemu's own structs.
-- Virtual Wii Remotes 1–3 with all buttons and an **independent IR pointer per player**, using Cemu's DSU touch
-  → pointer path (no Cemu patch required).
-- A phone connection server with QR pairing, slot assignment and safety rules (buttons release on disconnect or
-  after 1 s without input).
-- A phone Wii Remote web app (`apps/phone`): authentic and comfort layouts, left-handed mode, button size,
-  multi-touch, and release of all buttons when the page is hidden or the connection drops. It has been tested in
-  emulated phone browsers only, not on real phones yet.
-- A mouse-driven pointer test page for testing without phones.
-- Generation of Cemu controller profiles, so you don't have to bind buttons by hand.
+- **Phone GamePad** (phone 1, held sideways): ZL/L/R/ZR, both sticks, D-pad, ABXY, −/HOME/+, L3/R3, and a
+  touchscreen that drives Cemu's GamePad touch input.
+- **Phone Wii Remotes** (phones 2–4): authentic and comfort layouts, left-handed mode, and an **independent IR
+  pointer per player** through Cemu's DSU touch → pointer path (no Cemu patch).
+- **Camera pointing** with AprilTags around the TV image (`/tracking`), plus gyro fusion.
+- **Motion controls** from the phone's sensors for the GamePad and the Wii Remotes (opt-in button).
+- **Setup page:** downloads the official Cemu, points Controllers 1–4 at the phones, adds your own game folders and
+  launches games.
+- Safety rules: everything is released when a phone disconnects, hides the page, or goes silent for 1 s.
 
-Not built yet: camera pointing (AprilTags), the GamePad video stream, motion from phone sensors, and the desktop
-app/installer.
+Real-device results so far: a Windows PC and an iPhone paired over HTTPS and connected as a Wii Remote. See
+[`docs/compatibility.md`](docs/compatibility.md).
+
+Not built yet, but planned for 1.0 ([`docs/release-1.0.md`](docs/release-1.0.md)): streaming the GamePad picture to
+phone 1, and pointer calibration.
 
 ## Download
 

@@ -23,8 +23,8 @@ Wii U Connect sets itself up when it starts. The setup page shows a checklist, "
    into the Windows exe into its own folder; no internet needed. (Builds without a built-in Cemu, such as
    `cargo run`, download it from github.com/cemu-project/Cemu instead.) **Update Cemu** on the setup page
    downloads the newest release later, keeping your settings.
-2. **Controllers:** Cemu's Controllers 2–4 become the phone Wii Remotes. Your previous settings are backed up first
-   (`controllerN.xml.before-wiiu-connect`).
+2. **Controllers:** Cemu's Controller 1 becomes the phone GamePad and Controllers 2–4 the phone Wii Remotes. Your
+   previous settings are backed up first (`controllerN.xml.before-wiiu-connect`).
 3. **GamePad window:** Cemu opens its separate GamePad window when it starts.
 4. **Your games:** it looks for your own game dumps (`.wua`, `.wud`, `.wux`, `.iso` or unpacked games) in
    Downloads, Documents, Desktop, Games and Videos, and in game-named folders on other drives. It adds the folders
@@ -48,6 +48,18 @@ To skip the automatic part, start with `--no-auto-setup`; every step stays avail
    - **iPhone:** tap Show Details, then "visit this website".
    - **Android:** tap Advanced, then Proceed.
 4. Tap **Wii Remote → Connect**. LED 1 lights up. Play a Wii Remote game (e.g. Wii Party U).
+
+### GamePad (phone 1)
+
+1. Scan the QR code, choose **GamePad**, tap **Connect**, and turn the phone sideways.
+2. In a game, check:
+   - the buttons and both sticks, including their directions;
+   - that a tap on the dark touchscreen area lands at the same spot in Cemu's GamePad view (*View → Separate
+     GamePad view*). The picture itself is not streamed to the phone yet.
+3. Tap the **motion button** (phone icon, top bar) and allow motion access. Tilt the phone in a game that uses the
+   GamePad gyro and note whether up/down and left/right are correct.
+
+The Wii Remote screen has the same motion button for shaking and twisting.
 
 ## 4. Camera pointing (experimental)
 

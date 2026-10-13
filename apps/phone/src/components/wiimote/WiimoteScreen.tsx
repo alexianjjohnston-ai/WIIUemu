@@ -3,6 +3,7 @@ import { useSettings } from '../../hooks/useSettings';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { ControllerSession, type SessionConfig } from '../../session/ControllerSession';
 import { cameraPointingSupported } from '../../tracking/camera';
+import { MotionButton, motionNotice } from '../MotionControls';
 import { BZone } from './BZone';
 import { CameraPointerButton, CameraPointerStatus } from './CameraPointerControls';
 import { ConnectionNotice } from './ConnectionNotice';
@@ -24,6 +25,7 @@ export function WiimoteScreen({ config, onLeave }: Props) {
   const camera = useSyncExternalStore(session.camera.subscribe, session.camera.getState);
   const [cameraSupported] = useState(cameraPointingSupported);
   const [explainCamera, setExplainCamera] = useState(false);
+  const motion = useSyncExternalStore(session.motion.subscribe, session.motion.getStatus);
 
   useEffect(() => {
     session.start();
@@ -65,17 +67,26 @@ export function WiimoteScreen({ config, onLeave }: Props) {
           setSettingsOpen(true);
         }}
         actions={
-          serverTracks && (
-            <CameraPointerButton
-              state={camera}
-              supported={cameraSupported}
+          <>
+            <MotionButton
+              status={motion}
               onToggle={() => {
-                if (!cameraSupported) setExplainCamera((v) => !v);
-                else if (camera.status === 'on' || camera.status === 'starting') session.camera.disable();
-                else void session.camera.enable();
+                if (motion === 'on') session.motion.disable();
+                else void session.motion.enable();
               }}
             />
-          )
+            {serverTracks && (
+              <CameraPointerButton
+                state={camera}
+                supported={cameraSupported}
+                onToggle={() => {
+                  if (!cameraSupported) setExplainCamera((v) => !v);
+                  else if (camera.status === 'on' || camera.status === 'starting') session.camera.disable();
+                  else void session.camera.enable();
+                }}
+              />
+            )}
+          </>
         }
       />
       <div className="notice-slot">
@@ -96,6 +107,11 @@ export function WiimoteScreen({ config, onLeave }: Props) {
               session.camera.disable();
             }}
           />
+        )}
+        {motionNotice(motion) && (
+          <div className="notice notice--warn" data-testid="motion-notice" role="status">
+            <p>{motionNotice(motion)}</p>
+          </div>
         )}
       </div>
       <main className="wm-main">

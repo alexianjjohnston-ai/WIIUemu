@@ -110,13 +110,14 @@ test.describe('pairing and connection', () => {
     await expect(page.getByTestId('connection-notice')).toContainText('No free controller slot');
   });
 
-  test('GamePad role shows the coming-soon placeholder without connecting', async ({ page, server }) => {
-    await page.goto('/?token=abc');
-    await page.getByText('GamePad').click();
-    await page.getByRole('button', { name: 'Continue' }).click();
-    await expect(page.getByTestId('gamepad-placeholder')).toBeVisible();
-    expect(server.connections).toBe(0);
-    await page.getByRole('button', { name: 'Back' }).click();
-    await expect(page.getByTestId('connect-screen')).toBeVisible();
+  test('GamePad role connects as the GamePad and needs the pairing code', async ({ page, server }) => {
+    await page.goto('/');
+    await page.getByText('GamePad', { exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Connect' })).toBeDisabled();
+    await page.getByLabel('Pairing code').fill('abc-def-123');
+    await page.getByRole('button', { name: 'Connect' }).click();
+    await expect(page.getByTestId('gamepad-screen')).toBeVisible();
+    await expect.poll(() => server.hellos.length).toBe(1);
+    expect(server.hellos[0]).toMatchObject({ role: 'gamepad', token: 'abc-def-123' });
   });
 });

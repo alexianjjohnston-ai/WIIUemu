@@ -5,19 +5,63 @@ Hand-off notes for the next session. Newest first.
 ## 2026-10-13: One-file release that sets itself up (branch `feat/release-packaging`, PR #21)
 
 - **The release exe is self-contained.** It has the phone app embedded, a static C runtime, an icon and version
-  info, and the official Cemu release built in (Windows; fetched at release build time; URL and size checked, GitHub's SHA-256 digest too when published (none for v2.6); MPL-2.0
-  notice written as `CEMU-LICENSE.txt`).
+  info, and the official Cemu release built in (Windows). Cemu is fetched at release build time; its URL and size
+  are checked, plus GitHub's SHA-256 digest when one is published (none for v2.6). The MPL-2.0 notice is written as
+  `CEMU-LICENSE.txt`.
 - **Automatic setup on start.** It uses or installs Cemu (built-in first, then download), assigns controllers, turns
   on Cemu's GamePad window (`open_pad`) and finds game folders. The setup page shows a live checklist and the
   pairing QR code. `--no-auto-setup` turns it off.
 - **Release workflow.** A tag produces a draft release with notes and checksums. `test/**` branches run the same
   builds and smoke tests on real Windows and macOS runners.
-- **Verified on CI runners:** the release run on `4c74bb6` passed on Windows: no CRT DLLs, the exe alone in an empty
-  folder, and the automatic setup with a downloaded Cemu. The built-in Cemu path is covered by unit tests; its
-  runner check is pending.
+- **Verified on CI runners:** release run 38380958236 (`7d2edf2`) passed on Windows: no CRT DLLs, the exe alone
+  in an empty folder, the automatic setup installing the built-in Cemu v2.6 with no download, then updating it by
+  download.
 - **Unverified:** the owner's PC (SmartScreen, firewall prompt, game discovery on real folders).
-- **Next:** merge #20 and #21 (both touch `setup.rs`/`install.rs`, expect a conflict); pointer calibration UI;
-  GamePad screen streaming.
+- **Merged** after #20: the automatic setup now assigns all four controllers (`assign_controllers`), including the
+  phone GamePad on Controller 1.
+- **Next:** pointer calibration (#22); GamePad screen streaming.
+
+## 2026-10-12/13: Release 1.0 started (branch `feat/gamepad-controller`)
+
+PRs #1–#5 are merged into `main` with merge commits. The owner chose that 1.0 **includes GamePad screen streaming**.
+The plan is in `docs/release-1.0.md`.
+
+### Done
+- **Phone GamePad:**
+  - `components/gamepad/*` and `GamepadSession`;
+  - the engine carries sticks, touch and motion, coalesced to 16 ms;
+  - buttons and touch edges are sent at once.
+- **Motion:**
+  - `motion/convert.ts` and `MotionSensor`. The DSU convention comes from Cemu's motion handler (research.md §3).
+  - Engine-aware axes: WebKit reports `rotationRate` as x/y/z, while the spec says z/x/y (research.md §6b). This
+    also fixes the camera pointer's gyro on iPhones.
+- **Setup** assigns `controller0.xml` = WiiUConnect_GamePad. Profiles follow the bound DSU address (review fix
+  on #5).
+- **Review fixes on #5:**
+  - a Cemu update keeps `portable` safe when Cemu is running;
+  - game scans are cached, and status polls are sequential.
+
+### Tests
+- 141 Rust tests. Phone: 141 unit tests and 101 Playwright e2e tests, including 12 GamePad tests and Wii Remote
+  motion in both engine conventions.
+
+### Unverified
+- Everything on real hardware:
+  - GamePad layout on real phones;
+  - stick and motion directions in Cemu;
+  - touch accuracy against Cemu's GamePad view;
+  - iOS motion permission flow.
+- The checklist is in `docs/release-1.0.md`.
+
+### Next
+1. Open the PR for `feat/gamepad-controller`; the owner tests with the checklist.
+2. Work package 5, streaming:
+   - ADR-0002;
+   - a source check of Cemu's GamePad window title;
+   - a Windows.Graphics.Capture prototype;
+   - an H.264 encoder;
+   - WebCodecs on the phone with a JPEG fallback.
+3. Pointer calibration UI.
 
 ## 2026-10-12: Setup page and single-file release (branch `feat/setup-wizard`)
 

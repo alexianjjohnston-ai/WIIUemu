@@ -12,6 +12,10 @@ export const MAX_FRAME_BYTES = 4096;
 /** At most this many entries in `input.buttons`. */
 export const MAX_BUTTONS = 16;
 
+/** `input.motion` limits (the server rejects anything outside them). */
+export const MAX_MOTION_ACCEL_G = 64;
+export const MAX_MOTION_GYRO_DPS = 8000;
+
 export type Role = 'wiimote' | 'gamepad';
 
 /** Wii Remote buttons, in the canonical order the client sends them. */

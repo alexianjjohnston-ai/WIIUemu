@@ -1,10 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InputEngine } from './engine';
-import { WIIMOTE_BUTTONS, type InputMessage, type WiimoteButton } from '../protocol/types';
+import {
+  GAMEPAD_BUTTONS,
+  WIIMOTE_BUTTONS,
+  type GamepadButton,
+  type InputMessage,
+  type Motion,
+  type WiimoteButton,
+} from '../protocol/types';
 import { validateInput } from '../protocol/validate';
 
 function makeEngine() {
-  const engine = new InputEngine<WiimoteButton>(WIIMOTE_BUTTONS, { heartbeatMs: 50 });
+  const engine = new InputEngine<WiimoteButton>(WIIMOTE_BUTTONS, {
+    heartbeatMs: 50,
+  });
   const sent: InputMessage[] = [];
   return { engine, sent, send: (m: InputMessage) => sent.push(m) };
 }
@@ -224,5 +233,120 @@ describe('InputEngine sending', () => {
       expect(m.pointer).toBeNull();
       expect('motion' in m).toBe(false);
     }
+  });
+});
+
+describe('InputEngine analog input (GamePad)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function makeGamepad() {
+    const engine = new InputEngine<GamepadButton>(GAMEPAD_BUTTONS, {
+      heartbeatMs: 50,
+      sticks: true,
+    });
+    const sent: InputMessage[] = [];
+    engine.attach((m) => sent.push(m));
+    return { engine, sent };
+  }
+
+  it('always includes both sticks, centred by default', () => {
+    const { engine, sent } = makeGamepad();
+    expect(sent[0]).toMatchObject({
+      stick: { x: 0, y: 0 },
+      rstick: { x: 0, y: 0 },
+      pointer: null,
+    });
+    engine.detach();
+  });
+
+  it('coalesces stick moves to at most one snapshot per 16 ms, always sending the latest value', () => {
+    const { engine, sent } = makeGamepad();
+    vi.advanceTimersByTime(20);
+    const before = sent.length;
+    engine.setStick('stick', { x: 0.1, y: 0 });
+    expect(sent.length).toBe(before + 1); // first move after a quiet period goes out at once
+    engine.setStick('stick', { x: 0.2, y: 0 });
+    engine.setStick('stick', { x: 0.3, y: 0.5 });
+    expect(sent.length).toBe(before + 1);
+    vi.advanceTimersByTime(16);
+    expect(sent.length).toBe(before + 2);
+    expect(sent.at(-1)?.stick).toEqual({ x: 0.3, y: 0.5 });
+    engine.detach();
+  });
+
+  it('a button press is never delayed by stick coalescing', () => {
+    const { engine, sent } = makeGamepad();
+    vi.advanceTimersByTime(20);
+    engine.setStick('rstick', { x: -1, y: 0 });
+    engine.setStick('rstick', { x: -0.9, y: 0 });
+    const before = sent.length;
+    engine.press('p1', 'ZR');
+    expect(sent.length).toBe(before + 1);
+    expect(sent.at(-1)).toMatchObject({
+      buttons: ['ZR'],
+      rstick: { x: -0.9, y: 0 },
+    });
+    engine.detach();
+  });
+
+  it('touch down and lift are sent at once; moves are coalesced', () => {
+    const { engine, sent } = makeGamepad();
+    const before = sent.length;
+    engine.setPointer({ x: 0.5, y: 0.5 });
+    expect(sent.length).toBe(before + 1);
+    engine.setPointer({ x: 0.6, y: 0.5 });
+    expect(sent.length).toBe(before + 1);
+    engine.setPointer(null);
+    expect(sent.length).toBe(before + 2);
+    expect(sent.at(-1)?.pointer).toBeNull();
+    engine.detach();
+  });
+
+  it('releaseAll centres the sticks and lifts the touch', () => {
+    const { engine, sent } = makeGamepad();
+    engine.setStick('stick', { x: 1, y: 0 });
+    engine.setPointer({ x: 0.2, y: 0.8 });
+    expect(engine.releaseAll()).toBe(true);
+    expect(sent.at(-1)).toMatchObject({
+      buttons: [],
+      pointer: null,
+      stick: { x: 0, y: 0 },
+      rstick: { x: 0, y: 0 },
+    });
+    expect(engine.releaseAll()).toBe(false);
+    engine.detach();
+  });
+
+  it('adds the latest motion sample to snapshots and sends when motion changes', () => {
+    const { engine, sent } = makeGamepad();
+    let sample: Motion = { accel: [0, -1, 0], gyro: [0, 0, 0], ts: 1000 };
+    engine.setMotionSource(() => sample);
+    vi.advanceTimersByTime(20);
+    const before = sent.length;
+    sample = { accel: [0, -1, 0], gyro: [10, 0, 0], ts: 2000 };
+    engine.motionChanged();
+    expect(sent.length).toBe(before + 1);
+    expect(sent.at(-1)?.motion).toEqual(sample);
+    engine.setMotionSource(null);
+    vi.advanceTimersByTime(50);
+    expect('motion' in (sent.at(-1) ?? {})).toBe(false);
+    engine.detach();
+  });
+
+  it('every GamePad snapshot is valid according to the protocol validator', () => {
+    const { engine, sent } = makeGamepad();
+    for (const b of GAMEPAD_BUTTONS.slice(0, 16)) engine.press(`p-${b}`, b);
+    engine.setStick('stick', { x: -1, y: 1 });
+    engine.setStick('rstick', { x: 0.25, y: -0.75 });
+    engine.setPointer({ x: 1, y: 0 });
+    vi.advanceTimersByTime(100);
+    engine.releaseAll();
+    engine.detach();
+    for (const m of sent) expect(validateInput(m, 'gamepad')).toEqual([]);
   });
 });

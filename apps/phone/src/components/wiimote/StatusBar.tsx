@@ -12,7 +12,8 @@ function label(state: ConnectionState): string {
   switch (state.status) {
     case 'connected': {
       const rtt = state.rttMs === null ? '' : ` · ${state.rttMs} ms`;
-      return `Player ${state.welcome.player} · Connected${rtt}`;
+      const who = state.welcome.role === 'gamepad' ? 'GamePad' : `Player ${state.welcome.player}`;
+      return `${who} · Connected${rtt}`;
     }
     case 'connecting':
       return 'Connecting…';
@@ -35,10 +36,10 @@ export function StatusBar({ state, onOpenSettings, actions }: Props) {
       <div className="topbar-actions">
         {actions}
         <button type="button" className="icon-button" aria-label="Settings" onClick={onOpenSettings}>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
-          <circle cx="16" cy="7" r="2" />
-          <circle cx="10" cy="17" r="2" />
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+            <circle cx="16" cy="7" r="2" />
+            <circle cx="10" cy="17" r="2" />
           </svg>
         </button>
       </div>

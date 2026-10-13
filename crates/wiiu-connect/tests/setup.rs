@@ -121,9 +121,12 @@ async fn setup_flow_locate_controllers_games() {
     assert_eq!(code, 200, "{resp}");
     let (code, resp) = post("/api/setup/controllers", "{}".into()).await;
     assert_eq!(code, 200, "{resp}");
-    for n in 1..=3 {
+    // Controller 1 is the phone GamePad (DSU slot 0), Controllers 2-4 the Wii Remotes (slots 1-3).
+    for n in 0..=3 {
         let xml = std::fs::read_to_string(cemu.join(format!("portable/controllerProfiles/controller{n}.xml"))).unwrap();
         assert!(xml.contains("<api>DSUController</api>") && xml.contains(&format!("<uuid>{n}</uuid>")));
+        let kind = if n == 0 { "Wii U GamePad" } else { "Wiimote" };
+        assert!(xml.contains(&format!("<type>{kind}</type>")), "controller{n}: {xml}");
     }
 
     let games = dir.join("My games");
