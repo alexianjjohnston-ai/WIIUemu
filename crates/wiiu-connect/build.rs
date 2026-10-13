@@ -3,6 +3,10 @@
 //! folder or to a "not built" page. `WIIU_CONNECT_WEB_DIST` overrides the folder; `WIIU_CONNECT_REQUIRE_WEB=1`
 //! (set by the release workflow) turns a missing phone app into a build error.
 //!
+//! `WIIU_CONNECT_BUNDLE_CEMU=<folder>` (set by the Windows release workflow) also embeds an official Cemu release:
+//! the folder holds `cemu.zip` (the release's portable Windows zip), `TAG` (e.g. `v2.6`) and `LICENSE.txt` (Cemu's
+//! MPL-2.0 license). Without it nothing is embedded and Cemu is downloaded on first start instead.
+//!
 //! For Windows targets it also adds the icon, version information and an `asInvoker` manifest to the executable.
 
 use std::fmt::Write as _;
@@ -58,9 +62,43 @@ fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("set by cargo")).join("embedded_web.rs");
     std::fs::write(out, code).expect("write embedded_web.rs");
 
+    embed_cemu();
+
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         windows_resources(&manifest);
     }
+}
+
+/// Writes `embedded_cemu.rs`: `Some(BundledCemu)` when `WIIU_CONNECT_BUNDLE_CEMU` names a folder, else `None`.
+fn embed_cemu() {
+    println!("cargo:rerun-if-env-changed=WIIU_CONNECT_BUNDLE_CEMU");
+    let code = match std::env::var_os("WIIU_CONNECT_BUNDLE_CEMU").filter(|v| !v.is_empty()) {
+        None => "pub static BUNDLED_CEMU: Option<BundledCemu> = None;\n".to_string(),
+        Some(dir) => {
+            let dir = PathBuf::from(dir);
+            let file = |name: &str| {
+                let path = dir.join(name);
+                println!("cargo:rerun-if-changed={}", path.display());
+                path.canonicalize()
+                    .unwrap_or_else(|e| panic!("WIIU_CONNECT_BUNDLE_CEMU: {} is missing: {e}", path.display()))
+            };
+            let (zip, tag, license) = (file("cemu.zip"), file("TAG"), file("LICENSE.txt"));
+            let tag = std::fs::read_to_string(&tag).expect("read TAG").trim().to_string();
+            assert!(
+                tag.starts_with('v')
+                    && tag.len() < 32
+                    && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-'),
+                "WIIU_CONNECT_BUNDLE_CEMU: unexpected TAG {tag:?}"
+            );
+            format!(
+                "pub static BUNDLED_CEMU: Option<BundledCemu> = Some(BundledCemu {{ tag: {tag:?}, zip: include_bytes!({:?}), license: include_str!({:?}) }});\n",
+                zip.to_string_lossy(),
+                license.to_string_lossy()
+            )
+        }
+    };
+    let out = PathBuf::from(std::env::var("OUT_DIR").expect("set by cargo")).join("embedded_cemu.rs");
+    std::fs::write(out, code).expect("write embedded_cemu.rs");
 }
 
 /// Icon, file/product version and manifest shown in Explorer's Properties and used by Windows.

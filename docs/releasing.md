@@ -14,7 +14,10 @@ fails if:
 - the exe depends on the Visual C++ runtime DLLs;
 - the exe, started alone in an empty folder, does not serve the phone app over HTTP and HTTPS or reports the wrong
   version;
-- the official Cemu download and setup fails on a Windows runner (tags and `test/**` branches);
+- the latest official Cemu can't be fetched, fails GitHub's SHA-256 digest, or its license is no longer MPL-2.0
+  (the Windows exe includes it);
+- on a Windows runner, the automatic setup does not install the built-in Cemu and configure it, or updating Cemu
+  by download then fails (tags and `test/**` branches);
 - the tag, `Cargo.toml` and `apps/phone/package.json` disagree on the version, or CHANGELOG.md has no section for
   it.
 
@@ -42,3 +45,11 @@ To test the downloads without releasing, push any branch named `test/<something>
   Gatekeeper warn on first start (the release notes explain how to continue). Signing needs a certificate that the
   owner buys; it would be stored as an encrypted repository secret, never in the repository.
 - **Release builds for Linux:** they are not published. Linux users build from source.
+
+## Included Cemu
+
+The Windows exe contains the latest official Cemu release at build time, unchanged (`build.rs`,
+`WIIU_CONNECT_BUNDLE_CEMU`). Cemu is MPL-2.0: shipping its unmodified binary is allowed as long as its license
+and where to get its source come with it. The release notes name the version and link its source, and the exe writes
+`CEMU-LICENSE.txt` next to the Cemu it unpacks. If Cemu ever changes its license, the workflow stops and the
+bundling must be reviewed before the next release. To ship a newer Cemu, make a new release.

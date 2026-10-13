@@ -2,6 +2,23 @@
 
 Hand-off notes for the next session. Newest first.
 
+## 2026-10-13: One-file release that sets itself up (branch `feat/release-packaging`, PR #21)
+
+- **The release exe is self-contained.** It has the phone app embedded, a static C runtime, an icon and version
+  info, and the official Cemu release built in (Windows; fetched at release build time, SHA-256 checked, MPL-2.0
+  notice written as `CEMU-LICENSE.txt`).
+- **Automatic setup on start.** It uses or installs Cemu (built-in first, then download), assigns controllers, turns
+  on Cemu's GamePad window (`open_pad`) and finds game folders. The setup page shows a live checklist and the
+  pairing QR code. `--no-auto-setup` turns it off.
+- **Release workflow.** A tag produces a draft release with notes and checksums. `test/**` branches run the same
+  builds and smoke tests on real Windows and macOS runners.
+- **Verified on CI runners:** the release run on `4c74bb6` passed on Windows: no CRT DLLs, the exe alone in an empty
+  folder, and the automatic setup with a downloaded Cemu. The built-in Cemu path is covered by unit tests; its
+  runner check is pending.
+- **Unverified:** the owner's PC (SmartScreen, firewall prompt, game discovery on real folders).
+- **Next:** merge #20 and #21 (both touch `setup.rs`/`install.rs`, expect a conflict); pointer calibration UI;
+  GamePad screen streaming.
+
 ## 2026-10-12: Setup page and single-file release (branch `feat/setup-wizard`)
 
 The owner asked for one exe that handles emulator and game setup, "integrating Cemu and a Wii U downloader".

@@ -19,8 +19,10 @@ Keep the window open. The **setup page** opens in your browser. If it doesn't, g
 ## 2. Setup page
 
 Wii U Connect sets itself up when it starts. The setup page shows a checklist, "Setting everything up":
-1. **Get Cemu:** it uses your Cemu if it finds one. Otherwise it downloads the official release from
-   github.com/cemu-project/Cemu into its own folder. That takes about a minute the first time.
+1. **Get Cemu:** it uses your Cemu if it finds one. Otherwise it unpacks the official Cemu release that is built
+   into the Windows exe into its own folder; no internet needed. (Builds without a built-in Cemu, such as
+   `cargo run`, download it from github.com/cemu-project/Cemu instead.) **Update Cemu** on the setup page
+   downloads the newest release later, keeping your settings.
 2. **Controllers:** Cemu's Controllers 2–4 become the phone Wii Remotes. Your previous settings are backed up first
    (`controllerN.xml.before-wiiu-connect`).
 3. **GamePad window:** Cemu opens its separate GamePad window when it starts.

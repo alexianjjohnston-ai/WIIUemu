@@ -60,6 +60,7 @@
     <div class="head"><span class="num">1</span><h2>Cemu emulator</h2><span class="chip" id="cemu-chip">Checking…</span></div>
     <div id="cemu-info" class="small muted"></div>
     <div class="row" id="cemu-download-row">
+      <button class="primary" id="btn-included" hidden>Install Cemu</button>
       <button class="primary" id="btn-download">Download &amp; install Cemu</button>
       <span class="small muted">Official release from <a id="releases-link" target="_blank" rel="noopener">github.com/cemu-project/Cemu</a> (free, open source).</span>
     </div>
@@ -193,7 +194,13 @@ function render({ setup: s, phones, phone_url }) {
   if (d.state === 'failed') $('cemu-error').textContent = 'Install failed: ' + d.error;
   else if ($('cemu-error').textContent.startsWith('Install failed')) $('cemu-error').textContent = '';
   $('cemu-download-row').hidden = !s.can_download;
-  $('btn-download').textContent = c && c.managed ? 'Update Cemu' : 'Download & install Cemu';
+  // A Cemu built into this exe installs without internet; downloading then only updates it.
+  const included = s.bundled_cemu && !c;
+  $('btn-included').hidden = !included;
+  $('btn-included').textContent = `Install Cemu ${s.bundled_cemu || ''} (included, no download)`;
+  $('btn-included').disabled = running || busy;
+  $('btn-download').className = included ? '' : 'primary';
+  $('btn-download').textContent = c && c.managed ? 'Update Cemu' : included ? 'Download the newest instead' : 'Download & install Cemu';
   $('btn-download').disabled = running || busy;
   if (!s.can_download && !c) $('locate-box').open = true;
 
@@ -249,6 +256,7 @@ async function poll() {
 }
 
 $('btn-download').onclick = () => post('/api/setup/cemu/download', {}, $('cemu-error'));
+$('btn-included').onclick = () => post('/api/setup/cemu/install-included', {}, $('cemu-error'));
 $('btn-locate').onclick = () => post('/api/setup/cemu/locate', { path: $('cemu-path').value || null }, $('cemu-error'));
 $('btn-controllers').onclick = async () => {
   const r = await post('/api/setup/controllers', {}, $('ctl-error'));

@@ -19,6 +19,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/setup/status", get(status))
         .route("/api/setup/phone-qr.svg", get(phone_qr))
         .route("/api/setup/cemu/download", post(download))
+        .route("/api/setup/cemu/install-included", post(install_included))
         .route("/api/setup/cemu/locate", post(locate))
         .route("/api/setup/controllers", post(controllers))
         .route("/api/setup/games", post(add_games))
@@ -138,6 +139,22 @@ async fn download(
     }
     let setup = setup_or_404!(state);
     match setup.start_download() {
+        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(e) => setup_err(e),
+    }
+}
+
+/// Installs the Cemu built into this executable (no download).
+async fn install_included(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response {
+    if let Some(r) = check_post(peer, &headers) {
+        return r;
+    }
+    let setup = setup_or_404!(state);
+    match setup.start_bundled_install() {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
         Err(e) => setup_err(e),
     }

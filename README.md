@@ -36,7 +36,7 @@ Get the latest version from [GitHub Releases](../../releases):
 
 - **Windows 10/11:** `WiiUConnect-<version>-windows-x64.exe`. It is **one file** with nothing to install.
   Double-click it and it sets everything up by itself:
-  - It uses your Cemu, or downloads the official one.
+  - It uses your Cemu, or installs the official Cemu that is built into the exe (no download needed).
   - It connects Cemu's controllers to the phones.
   - It opens Cemu's GamePad window.
   - It finds your own game dumps.
