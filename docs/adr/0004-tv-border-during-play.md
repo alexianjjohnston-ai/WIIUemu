@@ -142,7 +142,13 @@ Differences from the design above, each decided while building it:
 - **Finding Cemu:** the window must belong to a process whose exe is named `Cemu.exe` (any case) and its title must
   start with `"Cemu "`. The exe name is used instead of the setup's Cemu path, so a Cemu the player started from
   elsewhere also works.
-- **Keep in place** runs on every 250 ms tick, not every 1 s.
+- **Keep in place** runs on every 250 ms tick, not every 1 s. It changes Cemu's window only if its frame, menu or
+  client area drifted, never raises or activates it, leaves it minimised if the player minimised it, and skips a
+  window that is "Not responding". A menu bar Cemu rebuilt is recorded as the one to restore. A display change
+  (resolution, scaling, another monitor) redraws the border there.
+- **Stopping:** besides Ctrl+C, Wii U Connect handles the console window closing, Ctrl+Break, log-off and shut-down
+  (Windows allows about 5 s), so closing its window restores Cemu. A restore that fails while Cemu still runs
+  (not responding) keeps the recovery file for the next start.
 - **Setup page:** the status reads "On: game 1221×687" (no display name), and on macOS and Linux "Windows only for
   now".
 - **No panic hook.** Restoring from a panic hook would run Win32 calls in an unknown state. The recovery file covers
