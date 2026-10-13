@@ -71,8 +71,16 @@ impl Desktop for WindowsDesktop {
         })
     }
 
+    fn menu(&self, handle: u64) -> u64 {
+        tv::window_menu(handle)
+    }
+
     fn place(&mut self, handle: u64, client: [i32; 4]) -> bool {
         tv::place_client(handle, client)
+    }
+
+    fn keep(&mut self, handle: u64, client: [i32; 4]) -> bool {
+        tv::keep_client(handle, client)
     }
 
     fn restore(&mut self, saved: &SavedWindow) -> bool {

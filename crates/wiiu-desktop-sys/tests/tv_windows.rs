@@ -1,7 +1,9 @@
 //! The TV border's Win32 layer against a real window (Windows CI).
 #![cfg(windows)]
 
-use wiiu_desktop_sys::test_support::{menu_of, style_of, window_rect, StandIn};
+use wiiu_desktop_sys::test_support::{
+    attach_new_menu, is_minimized, menu_of, minimize, style_of, window_rect, StandIn,
+};
 use wiiu_desktop_sys::tv;
 
 const WS_CAPTION: i64 = 0x00C0_0000;
@@ -51,8 +53,9 @@ fn places_the_client_area_and_restores_everything() {
     assert_eq!(tv::client_rect(h), Some(client));
     assert_eq!(style_of(h) & (WS_CAPTION | WS_THICKFRAME), 0, "frame removed");
     assert_eq!(menu_of(h), 0, "menu hidden");
-    // Placing again (the 1 s keep-in-place check) is stable.
-    assert!(tv::place_client(h, client));
+    // The keep-in-place check (every 250 ms) is stable when nothing changed.
+    assert!(tv::keep_client(h, client));
+    assert_eq!(tv::client_rect(h), Some(client));
 
     assert!(tv::restore_window(h, &saved));
     assert_eq!(style_of(h), saved.style);
@@ -85,4 +88,33 @@ fn gone_windows_are_reported_as_gone() {
     assert_eq!(tv::save_window(h), None);
     assert!(!tv::place_client(h, [0, 0, 100, 100]));
     assert!(!tv::restore_window(h, &saved));
+}
+
+#[test]
+fn keep_in_place_undoes_a_new_menu_and_leaves_a_minimised_window_alone() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    tv::make_dpi_aware();
+    let w = StandIn::new("Cemu 2.6 stand-in", [140, 140, 940, 740]);
+    let h = w.handle();
+    let monitor = tv::monitor_rect(h).expect("monitor");
+    let client = [
+        monitor[0] + 60,
+        monitor[1] + 50,
+        monitor[0] + 60 + 640,
+        monitor[1] + 50 + 360,
+    ];
+    assert!(tv::place_client(h, client));
+    assert_eq!(tv::window_menu(h), 0);
+
+    // Cemu rebuilds its menu bar: the driver reads the new handle, and keep-in-place takes it off again.
+    let menu = attach_new_menu(h);
+    assert_eq!(tv::window_menu(h), menu);
+    assert!(tv::keep_client(h, client));
+    assert_eq!(menu_of(h), 0, "menu hidden again");
+    assert_eq!(tv::client_rect(h), Some(client));
+
+    // The player minimises Cemu: keep-in-place doesn't bring it back.
+    minimize(h);
+    assert!(tv::keep_client(h, client));
+    assert!(is_minimized(h), "still minimised");
 }

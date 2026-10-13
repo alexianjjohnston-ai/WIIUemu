@@ -17,11 +17,12 @@ use windows_sys::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AdjustWindowRectEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnumWindows, GetClientRect,
     GetMenu, GetMessageW, GetWindowLongPtrW, GetWindowPlacement, GetWindowTextLengthW, GetWindowTextW,
-    GetWindowThreadProcessId, IsIconic, IsMenu, IsWindow, IsWindowVisible, IsZoomed, PostMessageW, PostQuitMessage,
-    RegisterClassW, SetMenu, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow, TranslateMessage,
-    GWL_EXSTYLE, GWL_STYLE, HMENU, HWND_TOP, MSG, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SWP_SHOWWINDOW, SW_RESTORE, WINDOWPLACEMENT, WM_CLOSE, WM_DESTROY, WM_ERASEBKGND, WM_PAINT,
-    WNDCLASSW, WS_CAPTION, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP, WS_THICKFRAME, WS_VISIBLE,
+    GetWindowThreadProcessId, IsHungAppWindow, IsIconic, IsMenu, IsWindow, IsWindowVisible, IsZoomed, PostMessageW,
+    PostQuitMessage, RegisterClassW, SetMenu, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow,
+    TranslateMessage, GWL_EXSTYLE, GWL_STYLE, HMENU, HWND_TOP, MSG, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_SHOWNOACTIVATE, SW_SHOWNORMAL, WINDOWPLACEMENT, WM_CLOSE, WM_DESTROY,
+    WM_ERASEBKGND, WM_PAINT, WNDCLASSW, WS_CAPTION, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP, WS_THICKFRAME,
+    WS_VISIBLE,
 };
 
 fn hwnd(handle: u64) -> HWND {
@@ -234,7 +235,8 @@ pub fn client_rect(handle: u64) -> Option<[i32; 4]> {
     }
 }
 
-fn set_window_rect(h: HWND, r: [i32; 4]) {
+fn set_window_rect(h: HWND, r: [i32; 4], raise: bool) {
+    let z = if raise { 0 } else { SWP_NOZORDER };
     // SAFETY: plain call with value arguments.
     unsafe {
         SetWindowPos(
@@ -244,22 +246,65 @@ fn set_window_rect(h: HWND, r: [i32; 4]) {
             r[1],
             r[2] - r[0],
             r[3] - r[1],
-            SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOACTIVATE,
+            SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOACTIVATE | z,
         );
     }
+}
+
+/// The window's menu handle, 0 for none.
+pub fn window_menu(handle: u64) -> u64 {
+    // SAFETY: plain query.
+    unsafe { GetMenu(hwnd(handle)) as usize as u64 }
+}
+
+/// Window `handle` exists and isn't "Not responding". Changing a hung window's style or position would block
+/// until it answers.
+fn responsive(h: HWND) -> bool {
+    // SAFETY: plain queries.
+    unsafe { IsWindow(h) != 0 && IsHungAppWindow(h) == 0 }
 }
 
 /// Removes the title bar, the resizable frame and the menu of window `handle`, and moves it so that its client
 /// area is exactly `client` (screen coordinates), above other normal windows. Returns whether it ended up there.
 pub fn place_client(handle: u64, client: [i32; 4]) -> bool {
+    fit_client(handle, client, true)
+}
+
+/// Like [`place_client`] for a window that is already placed: changes only what drifted, never raises it, and
+/// leaves it alone while it is minimised or not responding.
+pub fn keep_client(handle: u64, client: [i32; 4]) -> bool {
     let h = hwnd(handle);
+    if !responsive(h) {
+        return false;
+    }
+    // SAFETY: plain queries.
+    let (minimised, framed, menu) = unsafe {
+        let style = GetWindowLongPtrW(h, GWL_STYLE);
+        (
+            IsIconic(h) != 0,
+            style & (WS_CAPTION | WS_THICKFRAME) as isize != 0 || IsZoomed(h) != 0,
+            !GetMenu(h).is_null(),
+        )
+    };
+    if minimised {
+        return true;
+    }
+    if !framed && !menu && client_rect(handle) == Some(client) {
+        return true;
+    }
+    fit_client(handle, client, false)
+}
+
+fn fit_client(handle: u64, client: [i32; 4], raise: bool) -> bool {
+    let h = hwnd(handle);
+    if !responsive(h) {
+        return false;
+    }
     // SAFETY: style changes and positioning through documented calls on a window handle; RECT is local.
     unsafe {
-        if IsWindow(h) == 0 {
-            return false;
-        }
         if IsIconic(h) != 0 || IsZoomed(h) != 0 {
-            ShowWindow(h, SW_RESTORE);
+            // Shows it at its normal size without taking the focus.
+            ShowWindow(h, SW_SHOWNOACTIVATE);
         }
         let style = GetWindowLongPtrW(h, GWL_STYLE);
         let frame = (WS_CAPTION | WS_THICKFRAME) as isize;
@@ -274,28 +319,29 @@ pub fn place_client(handle: u64, client: [i32; 4]) -> bool {
         let mut r = to_rect(client);
         AdjustWindowRectEx(&mut r, new_style as u32, FALSE, ex_style as u32);
         let mut outer = from_rect(&r);
-        set_window_rect(h, outer);
+        set_window_rect(h, outer, raise);
         // Some frames don't match AdjustWindowRectEx exactly (custom borders, DPI rounding): correct once.
         if let Some(got) = client_rect(handle) {
             if got != client {
                 for i in 0..4 {
                     outer[i] += client[i] - got[i];
                 }
-                set_window_rect(h, outer);
+                set_window_rect(h, outer, raise);
             }
         }
     }
     client_rect(handle) == Some(client)
 }
 
-/// Puts back the style, extended style, menu and normal position saved by [`save_window`].
+/// Puts back the style, extended style, menu and normal position saved by [`save_window`]. False when the
+/// window is gone or not responding.
 pub fn restore_window(handle: u64, saved: &WindowState) -> bool {
     let h = hwnd(handle);
+    if !responsive(h) {
+        return false;
+    }
     // SAFETY: documented calls on a window handle; the menu handle is checked with IsMenu before use.
     unsafe {
-        if IsWindow(h) == 0 {
-            return false;
-        }
         SetWindowLongPtrW(h, GWL_STYLE, saved.style as isize);
         SetWindowLongPtrW(h, GWL_EXSTYLE, saved.ex_style as isize);
         let menu = saved.menu as usize as HMENU;
@@ -304,7 +350,12 @@ pub fn restore_window(handle: u64, saved: &WindowState) -> bool {
         }
         if let Some(mut wp) = placement(h) {
             wp.rcNormalPosition = to_rect(saved.placement);
-            wp.showCmd = saved.show_cmd;
+            // A normal window comes back without taking the focus.
+            wp.showCmd = if saved.show_cmd == SW_SHOWNORMAL as u32 {
+                SW_SHOWNOACTIVATE as u32
+            } else {
+                saved.show_cmd
+            };
             SetWindowPlacement(h, &wp);
         }
         SetWindowPos(

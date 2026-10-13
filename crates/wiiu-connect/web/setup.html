@@ -195,8 +195,12 @@ const TV_TEXT = {
   error: (st) => st.message,
 };
 
+// The page's own /tracking hint, shown again while the TV border can't appear (Off, or not on this platform).
+let trackingHint = null;
+
 function renderTv(tv) {
   if (!tv) return;
+  trackingHint ??= $('tracking-hint').innerHTML;
   for (const mode of ['auto', 'on', 'off']) {
     const b = $(`tv-${mode}`);
     const active = tv.mode === mode;
@@ -207,8 +211,10 @@ function renderTv(tv) {
   const st = tv.status || { state: 'off' };
   setDone('step-tv', st.state === 'on', (TV_TEXT[st.state] || (() => st.state))(st));
   $('step-tv').dataset.state = st.state;
-  if (st.state !== 'unsupported') {
+  if (st.state !== 'unsupported' && tv.mode !== 'off') {
     $('tracking-hint').textContent = 'Camera pointing: the TV border below appears by itself.';
+  } else {
+    $('tracking-hint').innerHTML = trackingHint;
   }
 }
 

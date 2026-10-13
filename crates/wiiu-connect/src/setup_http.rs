@@ -221,12 +221,13 @@ async fn tv_border(
         return err(StatusCode::BAD_REQUEST, "mode must be \"auto\", \"on\" or \"off\"");
     };
     let setup = setup_or_404!(state);
+    // Applied even if saving fails: turning the border off must always work right away.
     state.tv_border.set_mode(req.mode);
     match tokio::task::spawn_blocking(move || setup.set_tv_border_mode(req.mode)).await {
         Ok(Ok(())) => StatusCode::NO_CONTENT.into_response(),
         Ok(Err(e)) => err(
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("couldn't save the setting: {e}"),
+            format!("changed for now, but couldn't save it for the next start: {e}"),
         ),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }

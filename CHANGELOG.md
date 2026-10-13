@@ -6,10 +6,11 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
-- **TV border during play (Windows):** camera pointing now works in a running game. While a Wii Remote phone's
-  camera is on, black-and-white squares appear around Cemu's game on the screen that shows it, and the game shrinks
-  to fit inside them (1221×687 on a 1080p screen). They go away 3 s after the last camera turns off, and Cemu's
-  window is put back as it was.
+- **TV border during play (Windows, built but not yet tested with real Cemu on a TV):** so camera pointing can work
+  in a running game. While a Wii Remote phone's camera is on, black-and-white squares appear around Cemu's game on
+  the screen that shows it, and the game shrinks to fit inside them (1221×687 on a 1080p screen). They go away 3 s
+  after the last camera turns off, and Wii U Connect puts Cemu's window back as it was: also when you close Wii U
+  Connect's window.
   - The setup page has a **TV border: Auto / On / Off** switch and shows the state ("Waiting for Cemu's game
     window", "On: game 1221×687").
   - If Wii U Connect is killed while the border shows, the next start puts Cemu's window back.

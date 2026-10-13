@@ -19,8 +19,15 @@ pub trait Desktop {
     fn monitor(&self, handle: u64) -> Option<[i32; 4]>;
     /// The window's current frame, menu and position, with its process id and start time.
     fn save(&self, handle: u64) -> Option<SavedWindow>;
-    /// Frame and menu off, client area exactly `client` (screen coordinates). True when it got there.
+    /// The window's current menu handle, 0 for none.
+    fn menu(&self, handle: u64) -> u64;
+    /// Frame and menu off, client area exactly `client` (screen coordinates), raised above normal windows. True
+    /// when it got there.
     fn place(&mut self, handle: u64, client: [i32; 4]) -> bool;
+    /// Puts the frame, menu and client area back to what [`Desktop::place`] made them if Cemu changed them, without
+    /// raising, un-minimising or activating the window, and without touching a window that isn't responding.
+    fn keep(&mut self, handle: u64, client: [i32; 4]) -> bool;
+    /// False when the window is gone or not responding.
     fn restore(&mut self, saved: &SavedWindow) -> bool;
     /// Black window over `monitor` with `white` cells (relative to the monitor's top-left).
     fn show_border(&mut self, monitor: [i32; 4], white: Vec<[i32; 4]>) -> bool;
@@ -47,6 +54,7 @@ pub enum TvStatus {
 /// The border as it is applied now.
 struct Applied {
     saved: SavedWindow,
+    monitor: [i32; 4],
     client: [i32; 4],
 }
 
@@ -58,6 +66,26 @@ pub struct Driver<D: Desktop> {
 
 fn rect(r: PixelRect, dx: i32, dy: i32) -> [i32; 4] {
     [r.left + dx, r.top + dy, r.right + dx, r.bottom + dy]
+}
+
+fn on(client: [i32; 4]) -> TvStatus {
+    TvStatus::On {
+        width: client[2] - client[0],
+        height: client[3] - client[1],
+    }
+}
+
+/// Cemu's client area (screen coordinates) and the white tag cells (relative to the monitor) for `monitor`.
+fn layout_for(monitor: [i32; 4]) -> Result<([i32; 4], Vec<[i32; 4]>), TvStatus> {
+    let (width, height) = (monitor[2] - monitor[0], monitor[3] - monitor[1]);
+    let layout = MarkerLayout::border(&BorderConfig::default());
+    let Some(screen) = screen_layout(width.max(0) as u32, height.max(0) as u32, &layout) else {
+        return Err(TvStatus::Error {
+            message: format!("the display is {width}×{height}"),
+        });
+    };
+    let white = screen.white.iter().map(|&r| rect(r, 0, 0)).collect();
+    Ok((rect(screen.game, monitor[0], monitor[1]), white))
 }
 
 impl<D: Desktop> Driver<D> {
@@ -95,7 +123,7 @@ impl<D: Desktop> Driver<D> {
                 self.undo();
                 TvStatus::Off
             }
-            (true, Some((handle, pid, client))) => {
+            (true, Some((handle, pid, _))) => {
                 if self.desktop.owner(handle) != Some(pid) {
                     // Cemu closed: nothing to restore.
                     self.desktop.hide_border();
@@ -103,15 +131,58 @@ impl<D: Desktop> Driver<D> {
                     self.applied = None;
                     return TvStatus::WaitingForCemu;
                 }
-                // Keep in place: Cemu may have recreated its menu or toggled full screen.
-                self.desktop.place(handle, client);
-                TvStatus::On {
-                    width: client[2] - client[0],
-                    height: client[3] - client[1],
-                }
+                self.keep(handle)
             }
             (true, None) => self.apply(),
         }
+    }
+
+    /// While on: follow a menu Cemu rebuilt, a display change, and undo Cemu's own frame or size changes.
+    fn keep(&mut self, handle: u64) -> TvStatus {
+        let Some(a) = self.applied.as_mut() else {
+            return TvStatus::Off;
+        };
+        // Cemu rebuilds its menu bar at times (`RecreateMenu`); the old one is destroyed, so restore the new one.
+        let menu = self.desktop.menu(handle);
+        if menu != 0 && menu != a.saved.menu {
+            a.saved.menu = menu;
+            if let Err(e) = write_record(&self.record, &a.saved) {
+                tracing::warn!("couldn't update the TV border record: {e}");
+            }
+        }
+        match self.desktop.monitor(handle) {
+            Some(monitor) if monitor != a.monitor => {
+                // Resolution, scaling or display changed: draw the border again there.
+                tracing::info!(
+                    "display changed from {:?} to {monitor:?}; redrawing the TV border",
+                    a.monitor
+                );
+                return match layout_for(monitor) {
+                    Ok((client, white)) => {
+                        self.desktop.hide_border();
+                        if !self.desktop.show_border(monitor, white) {
+                            self.undo();
+                            return TvStatus::Error {
+                                message: "couldn't open the border window".into(),
+                            };
+                        }
+                        let a = self.applied.as_mut().expect("still applied");
+                        a.monitor = monitor;
+                        a.client = client;
+                        self.desktop.place(handle, client);
+                        on(client)
+                    }
+                    Err(status) => {
+                        self.undo();
+                        status
+                    }
+                };
+            }
+            _ => {}
+        }
+        let client = a.client;
+        self.desktop.keep(handle, client);
+        on(client)
     }
 
     fn apply(&mut self) -> TvStatus {
@@ -125,12 +196,9 @@ impl<D: Desktop> Driver<D> {
                 message: "couldn't find the display that shows Cemu".into(),
             };
         };
-        let (width, height) = (monitor[2] - monitor[0], monitor[3] - monitor[1]);
-        let layout = MarkerLayout::border(&BorderConfig::default());
-        let Some(screen) = screen_layout(width.max(0) as u32, height.max(0) as u32, &layout) else {
-            return TvStatus::Error {
-                message: format!("the display is {width}×{height}"),
-            };
+        let (client, white) = match layout_for(monitor) {
+            Ok(l) => l,
+            Err(status) => return status,
         };
         let Some(saved) = self.desktop.save(handle) else {
             return TvStatus::WaitingForCemu;
@@ -141,29 +209,29 @@ impl<D: Desktop> Driver<D> {
                 message: format!("couldn't save Cemu's window state: {e}"),
             };
         }
-        let white = screen.white.iter().map(|&r| rect(r, 0, 0)).collect();
         if !self.desktop.show_border(monitor, white) {
             delete_record(&self.record);
             return TvStatus::Error {
                 message: "couldn't open the border window".into(),
             };
         }
-        let client = rect(screen.game, monitor[0], monitor[1]);
         if !self.desktop.place(handle, client) {
             tracing::warn!("Cemu's window didn't land exactly on {client:?}");
         }
-        self.applied = Some(Applied { saved, client });
-        TvStatus::On {
-            width: client[2] - client[0],
-            height: client[3] - client[1],
-        }
+        self.applied = Some(Applied { saved, monitor, client });
+        on(client)
     }
 
     fn undo(&mut self) {
         if let Some(a) = self.applied.take() {
-            self.desktop.restore(&a.saved);
+            let restored = self.desktop.restore(&a.saved);
             self.desktop.hide_border();
-            delete_record(&self.record);
+            if restored || self.desktop.owner(a.saved.handle) != Some(a.saved.pid) {
+                delete_record(&self.record);
+            } else {
+                // Cemu still runs but couldn't be restored (not responding): the next start tries again.
+                tracing::warn!("couldn't restore Cemu's window; it will be repaired on the next start");
+            }
         }
     }
 
@@ -231,10 +299,64 @@ mod tests {
         assert_eq!(f.border.map(|b| b.0), Some(MONITOR));
         assert!(f.border.unwrap().1 > 0, "tag cells drawn");
         assert_eq!(read_record(&path), Some(saved_state()));
-        // Staying on re-places Cemu (keep in place) without reopening the border.
+        // Staying on only checks Cemu's window (keep in place): no re-raise, no new border.
         d.tick(true);
-        assert_eq!(d.desktop().placed.len(), 2);
+        assert_eq!(d.desktop().placed.len(), 1);
+        assert_eq!(d.desktop().kept, vec![client]);
         assert_eq!(d.desktop().borders_shown, 1);
+    }
+
+    #[test]
+    fn a_menu_cemu_recreates_while_on_is_the_one_restored() {
+        let path = record_path("menu");
+        let mut d = Driver::new(Fake::with_cemu(path.clone()), path.clone());
+        d.tick(true);
+        d.desktop.menu_now = 0x1234; // Cemu rebuilt its menu bar (RecreateMenu)
+        d.tick(true);
+        let expected = SavedWindow {
+            menu: 0x1234,
+            ..saved_state()
+        };
+        assert_eq!(
+            read_record(&path),
+            Some(expected.clone()),
+            "the record follows the new menu"
+        );
+        d.tick(false);
+        assert_eq!(d.desktop().restored, vec![expected]);
+    }
+
+    #[test]
+    fn a_resolution_or_monitor_change_redraws_the_border_there() {
+        let path = record_path("monitor");
+        let mut d = Driver::new(Fake::with_cemu(path.clone()), path.clone());
+        d.tick(true);
+        let uhd = [1920, 0, 1920 + 3840, 2160];
+        d.desktop.monitor_now = uhd;
+        let l = screen_layout(3840, 2160, &MarkerLayout::border(&BorderConfig::default())).unwrap();
+        let client = [l.game.left + 1920, l.game.top, l.game.right + 1920, l.game.bottom];
+        assert_eq!(
+            d.tick(true),
+            TvStatus::On {
+                width: client[2] - client[0],
+                height: client[3] - client[1]
+            }
+        );
+        assert_eq!(d.desktop().border.map(|b| b.0), Some(uhd));
+        assert_eq!(d.desktop().placed.last(), Some(&client));
+        // The original window state is kept: turning off restores what Cemu had before the border.
+        d.tick(false);
+        assert_eq!(d.desktop().restored, vec![saved_state()]);
+    }
+
+    #[test]
+    fn a_restore_that_fails_while_cemu_still_runs_keeps_the_record() {
+        let path = record_path("hung");
+        let mut d = Driver::new(Fake::with_cemu(path.clone()), path.clone());
+        d.tick(true);
+        d.desktop.restore_ok = false; // e.g. Cemu not responding
+        d.shutdown();
+        assert!(path.exists(), "the next start must still be able to repair Cemu");
     }
 
     #[test]
