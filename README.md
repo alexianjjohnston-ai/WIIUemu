@@ -35,10 +35,13 @@ app/installer.
 Get the latest version from [GitHub Releases](../../releases):
 
 - **Windows 10/11:** `WiiUConnect-<version>-windows-x64.exe`. It is **one file** with nothing to install.
-  Double-click it, and the setup page opens in your browser:
-  - It downloads and sets up the official Cemu for you.
-  - You add the folder with your own game dumps.
-  - Phones pair by QR code.
+  Double-click it and it sets everything up by itself:
+  - It uses your Cemu, or downloads the official one.
+  - It connects Cemu's controllers to the phones.
+  - It opens Cemu's GamePad window.
+  - It finds your own game dumps.
+
+  Then you scan the QR code on the setup page with your phones and press Play.
 
   The exe is not code-signed yet, so SmartScreen may say "Windows protected your PC": click **More info → Run
   anyway**. When the firewall asks, allow private networks so phones can connect.

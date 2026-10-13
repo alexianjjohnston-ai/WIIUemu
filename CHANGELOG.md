@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Automatic setup on start**, shown as a live checklist on the setup page. Each step can be turned off with
+  `--no-auto-setup`, and every step remains a button.
+  - Uses an existing Cemu (a located one, or one installed with Cemu's installer in `%LOCALAPPDATA%\Cemu`).
+    Otherwise it downloads and installs the official release.
+  - Points Cemu's controllers at the phones, backing up any existing settings.
+  - Turns on Cemu's separate GamePad window.
+  - Finds the folders that hold your own game dumps (Downloads, Documents, Desktop, Games, Videos, and game-named
+    folders on other drives) and adds them to Cemu.
+- The phone pairing QR code is now on the setup page itself.
 - **Release packaging:**
   - The Windows download is one self-contained `WiiUConnect-<version>-windows-x64.exe` with the C runtime linked
     statically, an app icon, version information and an `asInvoker` manifest.

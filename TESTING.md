@@ -18,18 +18,24 @@ Keep the window open. The **setup page** opens in your browser. If it doesn't, g
 
 ## 2. Setup page
 
-1. **Cemu emulator:**
-   - **Windows:** click **Download & install Cemu**. This fetches the official release from
-     github.com/cemu-project/Cemu into Wii U Connect's own folder, and sets up the controllers automatically.
-   - **Mac, or if you already have Cemu:** open "I already have Cemu" and click **Use this Cemu**. A folder picker
-     opens, or you can type the path.
-2. **Controllers:** click **Set up controllers** if it doesn't say "Ready". Cemu's Controllers 2–4 become the phone
-   Wii Remotes, and any existing settings are backed up first. Controller 1 (the GamePad) stays on your keyboard:
-   set it up once in Cemu under **Options → Input settings**.
-3. **Your games:** click **Add game folder** and pick the folder with your own dumps (`.wua` files or unpacked
-   games). Encrypted `.wud`/`.wux` images also need your console's keys in Cemu's `keys.txt`.
-4. **Phones:** open the pairing page link and scan the QR code (step 3 below).
-5. **Play:** click **Play** next to a game.
+Wii U Connect sets itself up when it starts. The setup page shows a checklist, "Setting everything up":
+1. **Get Cemu:** it uses your Cemu if it finds one. Otherwise it downloads the official release from
+   github.com/cemu-project/Cemu into its own folder. That takes about a minute the first time.
+2. **Controllers:** Cemu's Controllers 2–4 become the phone Wii Remotes. Your previous settings are backed up first
+   (`controllerN.xml.before-wiiu-connect`).
+3. **GamePad window:** Cemu opens its separate GamePad window when it starts.
+4. **Your games:** it looks for your own game dumps (`.wua`, `.wud`, `.wux`, `.iso` or unpacked games) in
+   Downloads, Documents, Desktop, Games and Videos, and in game-named folders on other drives. It adds the folders
+   it finds to Cemu.
+
+If a step shows **!** or **✕**, the section below it on the page lets you do that step by hand:
+- choose your Cemu folder;
+- add the folder with your game dumps (encrypted `.wud`/`.wux` images also need your console's keys in Cemu's
+  `keys.txt`).
+
+Then scan the **QR code on the setup page** with each phone, and press **Play** next to a game.
+
+To skip the automatic part, start with `--no-auto-setup`; every step stays available as a button.
 
 ## 3. Buttons and phones
 

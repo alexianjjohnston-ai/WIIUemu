@@ -104,7 +104,7 @@ jobs:
           $v = & $exe --version
           if ($v -ne "wiiu-connect $env:VERSION") { throw "unexpected --version output: $v" }
           $data = Join-Path $env:RUNNER_TEMP 'smoke-data'
-          $p = Start-Process -FilePath $exe -WorkingDirectory $dir -PassThru -ArgumentList '--no-browser','--bind','127.0.0.1:8737','--data-dir',$data
+          $p = Start-Process -FilePath $exe -WorkingDirectory $dir -PassThru -ArgumentList '--no-browser','--no-auto-setup','--bind','127.0.0.1:8737','--data-dir',$data
           try {
             Start-Sleep 3
             $page = Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8737/?token=smoke-test-token'
@@ -115,24 +115,31 @@ jobs:
             $code = & curl.exe -sk -o NUL -w '%{http_code}' 'https://127.0.0.1:8738/?token=smoke-test-token'
             if ($code -ne '200') { throw "HTTPS listener answered $code" }
           } finally { Stop-Process $p -ErrorAction SilentlyContinue }
-      - name: Smoke test (download and set up the official Cemu release)
+      - name: Smoke test (automatic setup downloads and configures the official Cemu)
         if: startsWith(github.ref, 'refs/heads/test/') || startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
           $data = Join-Path $env:RUNNER_TEMP 'wiiu-data'
+          # Exactly what a double-click does, minus the browser.
           $p = Start-Process -FilePath target/release/wiiu-connect.exe -PassThru -ArgumentList '--no-browser','--no-https','--bind','127.0.0.1:8737','--data-dir',$data
-          Start-Sleep 3
-          Invoke-RestMethod -Method Post -Uri http://localhost:8737/api/setup/cemu/download -Headers @{ Origin = 'http://localhost:8737' } -ContentType 'application/json' -Body '{}'
-          for ($i = 0; $i -lt 120; $i++) {
-            $s = Invoke-RestMethod http://localhost:8737/api/setup/status
-            if ($s.setup.download.state -ne 'running') { break }
-            Start-Sleep 2
-          }
-          $s.setup | ConvertTo-Json -Depth 5
-          Stop-Process $p
-          if ($s.setup.download.state -ne 'done') { throw "Cemu install failed: $($s.setup.download.error)" }
+          try {
+            Start-Sleep 3
+            for ($i = 0; $i -lt 150; $i++) {
+              $s = Invoke-RestMethod http://localhost:8737/api/setup/status
+              if (-not ($s.setup.auto | Where-Object { $_.state -in 'pending', 'running' })) { break }
+              Start-Sleep 2
+            }
+            $s.setup.auto | Format-Table -AutoSize | Out-String -Width 200
+            foreach ($step in $s.setup.auto) {
+              $ok = $step.state -eq 'done' -or ($step.id -eq 'games' -and $step.state -eq 'skipped')
+              if (-not $ok) { throw "automatic setup step '$($step.id)' ended as $($step.state): $($step.detail)" }
+            }
+          } finally { Stop-Process $p -ErrorAction SilentlyContinue }
           foreach ($f in 'Cemu.exe', 'portable\controllerProfiles\controller1.xml', 'portable\controllerProfiles\controller3.xml') {
             if (-not (Test-Path (Join-Path $data "Cemu\$f"))) { throw "missing $f" }
+          }
+          if ((Get-Content (Join-Path $data 'Cemu\portable\settings.xml') -Raw) -notmatch '<open_pad>true</open_pad>') {
+            throw 'the GamePad window setting was not written'
           }
       - name: Name the download
         shell: pwsh
@@ -175,7 +182,7 @@ jobs:
       - name: Smoke test
         run: |
           test "$(package/wiiu-connect --version)" = "wiiu-connect $VERSION"
-          package/wiiu-connect --no-browser --no-https --bind 127.0.0.1:8737 --data-dir "$RUNNER_TEMP/smoke" &
+          package/wiiu-connect --no-browser --no-https --no-auto-setup --bind 127.0.0.1:8737 --data-dir "$RUNNER_TEMP/smoke" &
           pid=$!
           sleep 3
           curl -fsS 'http://127.0.0.1:8737/?token=smoke-test-token' | grep -q 'id="root"'
