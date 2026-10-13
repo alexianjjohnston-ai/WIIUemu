@@ -41,6 +41,10 @@ same code as on Windows, so the input path should behave identically. This is **
 |------|----|-------|-------|-----------------|--------|
 | 2026-10-12 | Windows | iPhone (Safari) | `test/all-features` release package (commit `4298194`) | Server start, QR pairing over HTTPS (self-signed certificate accepted), Wii Remote connect, LED 1 lit | **works** (reported by the repository owner) |
 
+**TV border during play (Windows, PR #29):** tested in Windows CI against a stand-in window: placing the client
+area, hiding the frame and menu, restoring them, and the border window. Cemu's real window, a real TV and phones
+aiming at the border during a game are **unverified**.
+
 Still unverified on real phones: buttons reaching a game in Cemu, multi-touch, haptics, camera pointing, motion
 sensors and Android. Everything else is tested with Playwright mobile emulation (Pixel 7, iPhone 13 viewports),
 which cannot verify real multi-touch, haptics, sensors or cameras.

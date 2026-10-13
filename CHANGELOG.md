@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **TV border during play (Windows):** camera pointing now works in a running game. While a Wii Remote phone's
+  camera is on, black-and-white squares appear around Cemu's game on the screen that shows it, and the game shrinks
+  to fit inside them (1221×687 on a 1080p screen). They go away 3 s after the last camera turns off, and Cemu's
+  window is put back as it was.
+  - The setup page has a **TV border: Auto / On / Off** switch and shows the state ("Waiting for Cemu's game
+    window", "On: game 1221×687").
+  - If Wii U Connect is killed while the border shows, the next start puts Cemu's window back.
+  - Phones say "Aim at the middle of the game" when calibrating with the border. Protocol: optional `border`
+    field (`"game"` or `"page"`) in `tracking` messages.
+  - macOS and Linux still use the `/tracking` page. Not yet tested with real Cemu on a TV.
 - **Haptic feedback** on both controllers, with a **Vibration: Off / Light / Strong** setting (Wii Remote settings
   and the GamePad menu):
   - buzzes on button presses, D-pad directions, a stick reaching its rim, connecting, a dropped connection and
@@ -15,6 +25,10 @@ All notable changes to this project are documented here. The format follows
     rumble to DSU controllers.
 - Release workflow: a manual run on `main` with **Make the release** ticked tags the built commit and creates the
   GitHub release, for when a tag can't be pushed. Pre-releases are published at once; full versions stay drafts.
+
+### Changed
+- The tags sit a little further from the game picture (gap 3 % of the game height, was 1 %), so their white edge
+  no longer covers the game. The `/tracking` page and the phones use the same layout.
 
 ## [0.9.0-beta.1] - 2026-10-13
 

@@ -2,6 +2,35 @@
 
 Hand-off notes for the next session. Newest first.
 
+## 2026-10-13: TV border during play (branch `feat/tv-border`, PR #29)
+
+- Roadmap 1.2, ADR-0004 (now Accepted, with an "As built" section). Plan:
+  `docs/superpowers/plans/2026-10-13-tv-border.md`. The owner chose option A, Automatic with an Auto/On/Off switch,
+  and the border on whichever screen shows Cemu.
+- `wiiu_tracking::screen_layout`: pixel layout ported from `/tracking`. The default gap became 0.03, because the
+  quiet zone covered the game at 0.01 (test `quiet_zones_stay_outside_the_game`).
+- `crates/wiiu-desktop-sys` (new, the only `unsafe` besides apriltag): Win32 window listing, process start time,
+  client placement and restore, and the border window on its own thread. `tests/tv_windows.rs` runs on Windows CI
+  against a stand-in window and passed (run 38450731133).
+- `crates/wiiu-connect/src/tv_border/`:
+  - `controller` (Auto/On/Off, 3 s hide delay);
+  - `cemu` (main-window choice);
+  - `recovery` (`tv-border-restore.json`);
+  - `driver` (apply, keep in place, undo; the `Desktop` trait, tested with `fake.rs`);
+  - `runner` (250 ms tick thread);
+  - `windows_desktop`.
+  `SessionManager::cameras_active` counts slots with a camera frame in the last 1.5 s.
+- Setup page: `#step-tv` card, `POST /api/setup/tv-border`, `tv_border` in `/api/setup/status`. Setting saved in
+  setup state.
+- Protocol: optional `border: "game" | "page"` on `tracking`. The phone's calibration hint follows it.
+- Checking Windows-only code from Linux: `wiiu-desktop-sys` builds with `--target x86_64-pc-windows-msvc`;
+  `wiiu-connect` doesn't (ring and apriltag need MSVC headers), so its Windows modules were type-checked through a
+  scratch crate, and Windows CI is the real check.
+- **Unverified:** real Cemu (window class, how it reacts to losing its frame and menu, full-screen toggle), a real
+  TV, and phones aiming at the border in a game. The release-workflow check with the built-in Cemu is deferred.
+- Next: GamePad screen streaming (ADR-0002, roadmap 1.3), then the app window (plan on `feat/app-window`; its Task 1
+  must extend the now existing `wiiu-desktop-sys` instead of creating it).
+
 ## 2026-10-13: Haptic feedback (branch `feat/haptics`)
 
 - The owner asked for haptics and approved the design: iPhone support, more events and an Off / Light / Strong
