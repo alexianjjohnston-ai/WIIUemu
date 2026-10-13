@@ -12,6 +12,31 @@ All notable changes to this project are documented here. The format follows
 - **Motion controls** for the GamePad and the Wii Remotes, from the phone's sensors, in Cemu's DSU axis convention.
 - The setup page now also binds Cemu's Controller 1 to the phone GamePad.
 - `docs/release-1.0.md`: 1.0 scope, work packages and the hardware checklist.
+- **Automatic setup on start**, shown as a live checklist on the setup page. Each step can be turned off with
+  `--no-auto-setup`, and every step remains a button.
+  - Uses an existing Cemu (a located one, or one installed with Cemu's installer in `%LOCALAPPDATA%\Cemu`).
+    Otherwise it installs the official Cemu release built into the Windows exe, or downloads it.
+  - Points Cemu's controllers at the phones, backing up any existing settings.
+  - Turns on Cemu's separate GamePad window.
+  - Finds the folders that hold your own game dumps (Downloads, Documents, Desktop, Games, Videos, and game-named
+    folders on other drives) and adds them to Cemu.
+- The phone pairing QR code is now on the setup page itself.
+- **The Windows release exe includes the official Cemu release** (unmodified, MPL-2.0; license and source link are
+  written to `CEMU-LICENSE.txt` next to it). The first start needs no internet; **Update Cemu** still downloads the
+  newest release. The release workflow fetches the latest Cemu at build time from Cemu's GitHub releases, checks its
+  URL and size (and GitHub's SHA-256 digest when one is published; Cemu v2.6 has none) and logs its SHA-256.
+- **Release packaging:**
+  - The Windows download is one self-contained `WiiUConnect-<version>-windows-x64.exe` with the C runtime linked
+    statically, an app icon, version information and an `asInvoker` manifest.
+  - Each release build is checked: the phone app is embedded, the exe runs alone in an empty folder (HTTP and
+    HTTPS), there are no runtime DLL dependencies, and the version matches the tag.
+  - Draft GitHub releases get notes from CHANGELOG.md and SHA256 checksums.
+  - `scripts/set-version.sh` and `docs/releasing.md`.
+- Startup:
+  - The version is shown in the console, on `--version` and on the setup page.
+  - Starting a second copy opens the running copy's setup page instead of failing.
+  - A port taken by another program gets a clear message.
+  - When Wii U Connect is started by double-click, an error keeps the window open until Enter.
 - **Setup page** (`/setup`, opens automatically on start; PC-only and CSRF-protected):
   - Downloads the official Cemu release (Windows zip, Linux AppImage) into a portable folder, or uses your existing
     Cemu.

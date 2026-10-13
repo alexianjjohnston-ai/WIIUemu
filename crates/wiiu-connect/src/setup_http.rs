@@ -17,7 +17,9 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/setup", get(page))
         .route("/api/setup/status", get(status))
+        .route("/api/setup/phone-qr.svg", get(phone_qr))
         .route("/api/setup/cemu/download", post(download))
+        .route("/api/setup/cemu/install-included", post(install_included))
         .route("/api/setup/cemu/locate", post(locate))
         .route("/api/setup/controllers", post(controllers))
         .route("/api/setup/games", post(add_games))
@@ -92,9 +94,39 @@ async fn status(
     let setup = setup_or_404!(state);
     let s = tokio::task::spawn_blocking(move || setup.status()).await;
     match s {
-        Ok(s) => Json(serde_json::json!({ "setup": s, "phones": state.sessions.status() })).into_response(),
+        Ok(s) => {
+            let mut r = Json(serde_json::json!({
+                "setup": s,
+                "phones": state.sessions.status(),
+                // Contains the pairing token: this endpoint is PC-only (`reject_remote`), like `/pair`.
+                "phone_url": state.config.phone_url(state.sessions.token()),
+            }))
+            .into_response();
+            no_store(&mut r);
+            r
+        }
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
+}
+
+/// The pairing QR code, shown on the setup page so phones can be paired without opening `/pair`.
+async fn phone_qr(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response {
+    if let Some(r) = reject_remote(peer, &headers) {
+        return r;
+    }
+    let svg = crate::http::qr_svg(&state.config.phone_url(state.sessions.token()));
+    let mut r = ([(header::CONTENT_TYPE, "image/svg+xml")], svg).into_response();
+    no_store(&mut r);
+    r
+}
+
+fn no_store(r: &mut Response) {
+    r.headers_mut()
+        .insert(header::CACHE_CONTROL, header::HeaderValue::from_static("no-store"));
 }
 
 async fn download(
@@ -107,6 +139,22 @@ async fn download(
     }
     let setup = setup_or_404!(state);
     match setup.start_download() {
+        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(e) => setup_err(e),
+    }
+}
+
+/// Installs the Cemu built into this executable (no download).
+async fn install_included(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response {
+    if let Some(r) = check_post(peer, &headers) {
+        return r;
+    }
+    let setup = setup_or_404!(state);
+    match setup.start_bundled_install() {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
         Err(e) => setup_err(e),
     }

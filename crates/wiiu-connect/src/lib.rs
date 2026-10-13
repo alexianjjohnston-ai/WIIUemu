@@ -138,7 +138,13 @@ pub async fn start(
     let app = http::router(http::AppState {
         sessions: sessions.clone(),
         config: Arc::new(http_config),
-        setup: config.setup.clone().map(|cfg| setup::Setup::new(cfg, dsu_addr)),
+        setup: config.setup.clone().map(|cfg| {
+            let setup = setup::Setup::new(cfg, dsu_addr);
+            if setup.auto_enabled() {
+                setup.start_auto_setup();
+            }
+            setup
+        }),
     });
     let https_app = app.clone();
 
