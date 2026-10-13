@@ -1,7 +1,9 @@
 //! The TV border during play (ADR-0004): while a Wii Remote phone's camera is on, the screen showing Cemu gets the
 //! AprilTag border and Cemu's game window moves inside it.
 
+pub mod cemu;
 pub mod controller;
+pub mod recovery;
 
 use serde::{Deserialize, Serialize};
 
