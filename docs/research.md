@@ -46,6 +46,14 @@ Cemu sources: `cemu-project/Cemu` at commit `aa20e2f86e93` (2026-10-10).
 - Consequence: when a phone reconnects with a fresh clock, motion would stall. `wiiu-controller::state::MotionClock`
   rebases phone timestamps onto a monotonic server timeline.
 
+- **Axis convention, derived** (Cemu commit `21878f1`): `SDLControllerProvider.cpp` and `integrate_motion` feed
+  the same `MotionHandler`.
+  - SDL path: accel arrives as `(-a/9.81)` and is passed as `(x, -y, -z)`; gyro arrives as `(x, -y, -z)` in rad/s.
+  - DSU path: accel is passed as `(x, -y, -z)`; gyro is passed as `(x, y, z)` after converting deg/s to rad/s.
+  - Equating the two gives DSU accel = −(SDL accel)/g and DSU gyro = (x, −y, −z) of the SDL rate, in deg/s.
+  - SDL's frame for a hand-held controller has x right, y up out of the face, and z toward the player. A DSU
+    server built this way therefore behaves like an SDL controller, which Cemu users bind for motion.
+
 ## 4. DSU transport details (source-verified)
 
 - Client: `DSUControllerProvider`. Up to **4 slots per server** (`kMaxClients = 4`), a 100-byte receive buffer,
@@ -107,6 +115,25 @@ Used by the setup page (`crates/wiiu-cemu/src/install.rs`, `crates/wiiu-connect/
   `tpData.x = pos.x * 3883 + 92` and `tpData.y = 4095 - pos.y * 3694 - 254`, using the same DSU touch point. The
   phone GamePad's touchscreen can therefore use the same path as the Wii Remote pointer.
 
+## 6b. Phone motion sensors differ by browser engine (source-verified, WebKit `main` on 2026-10-12)
+
+- **WebKit (every iOS browser):** `Source/WebCore/platform/ios/WebCoreMotionManager.mm` passes CoreMotion
+  `userAcceleration + gravity` (× 9.80665) and `rotationRate` (rad → deg) unchanged to
+  `DeviceMotionClientIOS::motionChanged`. That function builds `DeviceMotionData::RotationRate::create(x, y, z)`,
+  and the parameters of `create` are `(alpha, beta, gamma)` (`Source/WebCore/dom/DeviceMotionData.h`). On iOS
+  therefore:
+  - `rotationRate.alpha` / `beta` / `gamma` are the rates about device **x / y / z**;
+  - `accelerationIncludingGravity` points **down**, because CoreMotion reports gravity as −1 g on z when the phone
+    lies flat, face up.
+- **W3C spec (Chromium, Firefox):**
+  - `beta` / `gamma` / `alpha` are the rates about x / y / z;
+  - `accelerationIncludingGravity` points up: z = +9.81 when the phone lies flat, face up.
+- The phone app detects WebKit with `DeviceMotionEvent.requestPermission`, which only WebKit has, or with an iOS
+  user agent, and maps both conventions to the W3C device frame (`apps/phone/src/motion/convert.ts`).
+- **Consequence for camera pointing:** before this fix, iPhone gyro axes were permuted. The first iPhone test
+  reported the pointer moving the wrong way. This is likely the cause, but it is **unverified** until the next
+  device test.
+
 ## 7. Related upstream work
 
 - **Cemu PR #1971** "Add mouse to wiimote pointer feature" (open, ready for review since 2026-07-05): adds a
@@ -119,5 +146,5 @@ Used by the setup page (`crates/wiiu-cemu/src/install.rs`, `crates/wiiu-connect/
 
 - Running the Wii U Menu with user-dumped system files in the current Cemu build (Milestone 6).
 - GamePad window capture options on Windows: Windows.Graphics.Capture or DXGI duplication of Cemu's separate
-  GamePad window (Milestone 5).
+  GamePad window (1.0 work package 5, see docs/release-1.0.md).
 - Whether games read the `dist` and `horizon` fields of the DPD data, which DSU cannot provide.

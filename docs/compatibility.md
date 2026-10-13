@@ -19,8 +19,8 @@ Good first candidates for pointer verification: Wii Party U, Mario Party 10 and 
 | Wii Remote IR pointer via DSU touch | done | unit + end-to-end tests; Cemu path source-verified; **not yet tested in a game** |
 | Three independent Wii Remotes | done (slots 1–3) | end-to-end test with three simulated phones |
 | Nunchuk stick and C/Z | protocol and mapping done | unit tests only; no phone UI yet |
-| Motion (accel/gyro) pass-through | protocol, mapping and timestamp handling done | unit tests only; phone sensors not yet wired |
-| GamePad buttons, sticks and touch | protocol and mapping done | unit tests only; no phone UI or video yet |
+| Motion (accel/gyro) | phone sensors → DSU for the GamePad and Wii Remotes (opt-in button) | unit + e2e tests with synthetic DeviceMotion events in both engine conventions; **axis directions not yet checked in Cemu or on a real phone** |
+| GamePad buttons, sticks and touch | phone GamePad screen, Cemu GamePad profile assigned by setup | unit + 12 e2e tests (Pixel 7 / iPhone 13 emulation, landscape); **not yet tested in Cemu**; no video yet |
 | Cemu profile generation | done | schema tests against Cemu's loader; **not yet loaded in Cemu** |
 
 ## Platforms

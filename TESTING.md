@@ -19,9 +19,9 @@ Keep the window open. The **setup page** opens in your browser. If it doesn't, g
      github.com/cemu-project/Cemu into Wii U Connect's own folder, and sets up the controllers automatically.
    - **Mac, or if you already have Cemu:** open "I already have Cemu" and click **Use this Cemu**. A folder picker
      opens, or you can type the path.
-2. **Controllers:** click **Set up controllers** if it doesn't say "Ready". Cemu's Controllers 2–4 become the phone
-   Wii Remotes, and any existing settings are backed up first. Controller 1 (the GamePad) stays on your keyboard:
-   set it up once in Cemu under **Options → Input settings**.
+2. **Controllers:** click **Set up controllers** if it doesn't say "Ready". Cemu's Controller 1 becomes the phone
+   GamePad and Controllers 2–4 become the phone Wii Remotes. Existing settings are backed up first
+   (`controllerN.xml.before-wiiu-connect`).
 3. **Your games:** click **Add game folder** and pick the folder with your own dumps (`.wua` files or unpacked
    games). Encrypted `.wud`/`.wux` images also need your console's keys in Cemu's `keys.txt`.
 4. **Phones:** open the pairing page link and scan the QR code (step 3 below).
@@ -36,6 +36,18 @@ Keep the window open. The **setup page** opens in your browser. If it doesn't, g
    - **iPhone:** tap Show Details, then "visit this website".
    - **Android:** tap Advanced, then Proceed.
 4. Tap **Wii Remote → Connect**. LED 1 lights up. Play a Wii Remote game (e.g. Wii Party U).
+
+### GamePad (phone 1)
+
+1. Scan the QR code, choose **GamePad**, tap **Connect**, and turn the phone sideways.
+2. In a game, check:
+   - the buttons and both sticks, including their directions;
+   - that a tap on the dark touchscreen area lands at the same spot in Cemu's GamePad view (*View → Separate
+     GamePad view*). The picture itself is not streamed to the phone yet.
+3. Tap the **motion button** (phone icon, top bar) and allow motion access. Tilt the phone in a game that uses the
+   GamePad gyro and note whether up/down and left/right are correct.
+
+The Wii Remote screen has the same motion button for shaking and twisting.
 
 ## 4. Camera pointing (experimental)
 

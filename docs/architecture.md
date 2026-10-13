@@ -6,7 +6,7 @@
  Phone 3 (Wii Remote P2) ──────┼──► WebSocket /ws ──────►│ wiiu-connect                                 │
  Phone 4 (Wii Remote P3) ──────┘   (JSON, protocol v1)   │  ├─ http.rs     pairing, PWA, PC-only pages  │
                                                          │  ├─ ws.rs       per-phone connection loop    │
-       ◄── GamePad video (WebRTC, Milestone 5) ──────────│  ├─ session.rs  auth, slots, safety rules    │
+       ◄── GamePad video (planned, release-1.0.md) ──────│  ├─ session.rs  auth, slots, safety rules    │
                                                          │  └─ wiiu-dsu    DSU server ──UDP 26760──►Cemu│
                                                          │                                (loopback)    │
                                                          │  TV: Cemu game + AprilTag border (M2)        │
@@ -62,5 +62,5 @@ TLS listener. Whether every phone browser grants camera and sensor access after 
 - **Tauri desktop shell** (Milestone 6): a pairing/diagnostics window that wraps the same `wiiu-connect` library.
   It is deferred because the server must work first and Tauri needs Windows WebView2 tooling; the current CI
   container has none.
-- **GamePad streaming** (Milestone 5): capture Cemu's GamePad window, hardware H.264 encode, WebRTC to phone 1.
-- **AprilTag tracking** (Milestone 2): see `docs/tracking.md`.
+- **GamePad streaming** (1.0 work package 5, `docs/release-1.0.md`): capture Cemu's GamePad window, encode to
+  H.264, and stream to phone 1 over the existing WebSocket. ADR-0002 will settle the design.

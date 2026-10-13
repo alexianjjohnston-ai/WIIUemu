@@ -72,8 +72,24 @@ the next one corrects the state, so a button can never stay stuck because one "r
 
 Wii Remote buttons: `A B ONE TWO PLUS MINUS HOME UP DOWN LEFT RIGHT C Z` (`C`/`Z` are the Nunchuk).
 
-GamePad buttons: `A B X Y L R ZL ZR PLUS MINUS HOME UP DOWN LEFT RIGHT L3 R3`. (Reserved: the GamePad role is
-implemented in Milestone 5.)
+GamePad buttons: `A B X Y L R ZL ZR PLUS MINUS HOME UP DOWN LEFT RIGHT L3 R3`. For the GamePad, `pointer` is the
+touchscreen: the position of the first finger on the 16:9 screen area, `null` when no finger touches it.
+
+#### Motion axis convention
+
+`motion` uses the convention Cemu's DSU client expects (docs/research.md §3):
+- **Controller frame:** SDL's, with x to the right, y out of the controller's face, and z toward the player.
+  - For the GamePad, the face is the phone's screen held sideways.
+  - For a Wii Remote, the face is the screen, with the top edge pointing at the TV.
+  - With camera pointing on, the phone is held upright with its back to the TV, so the frame is the phone's own
+    screen frame.
+- **`accel`:** the acceleration the controller experiences, in g, **negated**. A controller lying flat reads
+  `[0, -1, 0]`.
+- **`gyro`:** the rotation rate in deg/s as `[x, -y, -z]`, from right-handed rates about the controller axes.
+
+Phones convert DeviceMotion events into this convention (`apps/phone/src/motion/convert.ts`). They clamp to the
+limits below: a saturated sensor is still a valid reading, unlike an out-of-range value from a buggy client.
+`accel` must stay within ±64, `gyro` within ±8000, and `ts` must be an integer µs value in `[0, 2^53)`.
 
 All numbers must be finite. Values outside their range cause a validation error and are not clamped, because
 out-of-range input signals a client bug.
